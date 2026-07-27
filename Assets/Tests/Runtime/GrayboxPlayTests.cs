@@ -193,6 +193,103 @@ namespace VelkhanaSlice.PlayTests
             }
         }
 
+        static HunterHealth MakeHunterTarget(Vector3 position, int layer)
+        {
+            var go = new GameObject("Hunter", typeof(CharacterController), typeof(HunterController), typeof(HunterHealth));
+            go.layer = layer;
+            go.transform.position = position;
+
+            // There is no ground in these tests, so stop the controller stepping and falling away
+            // from the hitbox. HunterHealth still reads its state.
+            go.GetComponent<HunterController>().enabled = false;
+
+            return go.GetComponent<HunterHealth>();
+        }
+
+        [UnityTest]
+        public IEnumerator VelkhanaDamagesTheHunterOnceOnHerActiveFrames()
+        {
+            var attack = MakeAttack(4, 3, 6, 2);
+            attack.damage = 25f;
+            attack.hitboxCenter = new Vector3(0f, 1f, 4f);
+            attack.hitboxSize = new Vector3(6f, 3f, 10f);
+
+            // An earlier test loads the graybox scene, so these objects share it. Use an exclusive
+            // layer to keep the query off Velkhana's own hurtboxes.
+            const int isolatedLayer = 31;
+
+            var health = MakeHunterTarget(new Vector3(0f, 1f, 4f), isolatedLayer);
+            var brain = MakeBrain(out var root, out var standIn, attack);
+            brain.hunter = health.transform;
+            brain.hunterLayers = 1 << isolatedLayer;
+            root.transform.rotation = Quaternion.LookRotation(Vector3.forward, Vector3.up);
+
+            try
+            {
+                int waited = 0;
+                int attacksStarted = 0;
+                int activeFramesSeen = 0;
+                int overlapHits = 0;
+                var buffer = new Collider[8];
+                AttackDefinition previous = null;
+
+                while (health.Current >= health.maxHealth && waited++ < FrameBudget)
+                {
+                    var current = brain.CurrentAttack;
+                    if (current != null && current != previous) attacksStarted++;
+                    previous = current;
+
+                    if (current != null && current.IsHitActive(brain.AttackFrame))
+                    {
+                        activeFramesSeen++;
+                        overlapHits += AttackHitbox.Overlap(root.transform, current, brain.hunterLayers, buffer);
+                    }
+
+                    yield return new WaitForFixedUpdate();
+                }
+
+                Assert.Less(health.Current, health.maxHealth,
+                    $"no damage. attacksStarted={attacksStarted} activeFrames={activeFramesSeen} overlaps={overlapHits}");
+                Assert.AreEqual(health.maxHealth - 25f, health.Current, 0.001f,
+                    "an attack must land once, not once per active frame");
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+                Object.DestroyImmediate(standIn);
+                Object.DestroyImmediate(health.gameObject);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator HitInterruptsASwingButNotAHyperArmourMove()
+        {
+            var health = MakeHunterTarget(Vector3.zero, 0);
+            yield return null;
+
+            var swing = MakeAttack(4, 2, 8, 2);
+            var tackle = MakeAttack(4, 2, 8, 2);
+            tackle.hyperArmor = true;
+            tackle.incomingDamageReduction = 0.5f;
+
+            try
+            {
+                float before = health.Current;
+                Assert.IsTrue(health.TakeDamage(40f), "a standing hunter should take the hit");
+                Assert.AreEqual(before - 40f, health.Current, 0.001f);
+
+                // Reduction only applies while a hyper-armour move is actually playing.
+                before = health.Current;
+                health.TakeDamage(40f);
+                Assert.AreEqual(before - 40f, health.Current, 0.001f,
+                    "no reduction outside a hyper-armour move");
+            }
+            finally
+            {
+                Object.DestroyImmediate(health.gameObject);
+            }
+        }
+
         [UnityTest]
         public IEnumerator GrayboxSceneIsFullyWired()
         {

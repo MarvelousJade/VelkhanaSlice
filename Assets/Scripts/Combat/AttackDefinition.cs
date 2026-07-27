@@ -33,6 +33,14 @@ namespace VelkhanaSlice.Combat
         public bool hyperArmor;
         [Range(0f, 1f)] public float incomingDamageReduction;
 
+        [Header("Hitbox (attacker local space, metres)")]
+        [Tooltip("Centre of the damage box relative to the attacker.")]
+        public Vector3 hitboxCenter = new Vector3(0f, 1f, 1.6f);
+        [Tooltip("Full size of the damage box. Zero disables the hitbox.")]
+        public Vector3 hitboxSize = new Vector3(2.5f, 2f, 2.5f);
+
+        public bool HasHitbox => hitboxSize.x > 0f && hitboxSize.y > 0f && hitboxSize.z > 0f;
+
         [Header("Motion")]
         [Tooltip("Forward displacement across the attack, sampled from 0 to 1 over its total length.")]
         public AnimationCurve forwardMotion = AnimationCurve.Constant(0f, 1f, 0f);

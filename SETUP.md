@@ -10,8 +10,14 @@ Unity 6000.4.11f1. Open the folder in Unity Hub; the editor generates `Library/`
 | `Combat/AttackDefinition.cs` | ScriptableObject holding every attack's frame windows, damage, charge scaling, motion curve and follow-up links |
 | `Combat/BodyPartHurtbox.cs` | One damageable section, with its own multiplier, break threshold and ice armour |
 | `Combat/DamageResolver.cs` | The only place a hitbox turns into damage |
+| `Combat/AttackHitbox.cs` | `IAttacker` plus the shared box query both sides use |
+| `Combat/AttackTelegraph.cs` | Ground projection of the active hitbox, amber winding up, red on active frames |
 | `Hunter/HunterController.cs` | Movement, sheathing, charge levels, attack playback, roll |
+| `Hunter/HunterHealth.cs` | Applies roll invulnerability and hyper-armour reduction to incoming hits |
 | `Monster/VelkhanaBrain.cs` | Armour stages plus weighted, context-driven attack selection |
+| `CameraRig.cs` | Angled follow camera framing hunter and monster together |
+| `Debug/ScriptedPlaythrough.cs` | Virtual gamepad that plays a scripted fight and screenshots each beat |
+| `Debug/CombatHud.cs` | IMGUI readout of health, charge, attack frame and part damage |
 | `Tests/Editor/CombatMathTests.cs` | Frame-window and damage rules the acceptance criteria depend on |
 
 The simulation runs at a fixed 60 Hz (`ProjectSettings/TimeManager.asset`). All gameplay logic is
@@ -53,10 +59,30 @@ Unity.exe -batchmode -projectPath . -runTests -testPlatform PlayMode -testResult
 Unity's exit code is 0 even when compilation fails, so check the log for `error CS` rather than
 trusting the exit status.
 
+## Visual check
+
+The build can play itself. `-autoshots <dir>` makes `ScriptedPlaythrough` add a virtual gamepad,
+run its beat list and write a screenshot per named beat:
+
+```
+VelkhanaSlice.exe -screen-fullscreen 0 -screen-width 1280 -screen-height 720 -autoshots shots
+```
+
+Files come out as `06_charged_swing_f026.png`. The component caps the frame rate to 60 so a beat
+frame matches a simulation frame, otherwise captures land nowhere near the attack frame they are
+named for. Edit the beat list on the component to check a different sequence.
+
+Capture from inside the player rather than screenshotting the desktop: it cannot pick up anything
+outside the game window and does not depend on window focus.
+
 ## Not built yet
 
 `ArenaHazardManager`, pooled `IceWall` / `IceSpire`, `CombatTelemetryRecorder`, guard and sharpness,
 lock-on, Slinger Burst, tail sever. See the plan document for where each belongs.
+
+Velkhana has no locomotion outside attacks that carry forward motion, so she never walks toward the
+hunter. Her attacks have no effects beyond the ground telegraph. Death is tracked on `HunterHealth`
+but nothing reacts to it, so there is still no win or lose.
 
 The hunter's own input path has no automated coverage: driving it needs `InputTestFixture` from
 the Input System package, which needs `testables` in the manifest. Worth adding when combo-buffering

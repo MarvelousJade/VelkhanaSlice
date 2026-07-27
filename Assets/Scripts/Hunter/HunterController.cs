@@ -11,7 +11,7 @@ namespace VelkhanaSlice.Hunter
     /// footage frame by frame. Animation is presentation only.
     /// </summary>
     [RequireComponent(typeof(CharacterController))]
-    public class HunterController : MonoBehaviour
+    public class HunterController : MonoBehaviour, IAttacker
     {
         public enum State { Free, Charging, Attacking, Rolling }
 
@@ -42,8 +42,8 @@ namespace VelkhanaSlice.Hunter
         public int overchargeFrames = 45;
 
         [Header("Hit detection")]
+        [Tooltip("Where the sword visual sits. The damage box itself comes from the attack definition.")]
         public Transform bladePoint;
-        public float bladeRadius = 1.4f;
         public LayerMask hurtboxLayers = ~0;
 
         [Header("Camera")]
@@ -63,11 +63,13 @@ namespace VelkhanaSlice.Hunter
         int _chargeFrames;
         int _hitstopFrames;
         int _sheatheTimer;
+        float _verticalVelocity;
         bool _previousHitConnected;
         Vector3 _aimDirection = Vector3.forward;
         AttackDefinition _bufferedAttack;
         readonly HashSet<BodyPartHurtbox> _hitThisSwing = new HashSet<BodyPartHurtbox>();
-        readonly Collider[] _overlapBuffer = new Collider[16];
+        // A wide swing can cover every body part at once, so leave headroom above the nine hurtboxes.
+        readonly Collider[] _overlapBuffer = new Collider[32];
 
         // Input is polled every render frame and consumed by the fixed-step simulation, because
         // a button press can happen between two fixed steps and must not be dropped.
@@ -274,8 +276,7 @@ namespace VelkhanaSlice.Hunter
 
         void CheckHits(AttackDefinition attack)
         {
-            Vector3 origin = bladePoint != null ? bladePoint.position : transform.position + transform.forward;
-            int count = Physics.OverlapSphereNonAlloc(origin, bladeRadius, _overlapBuffer, hurtboxLayers, QueryTriggerInteraction.Collide);
+            int count = AttackHitbox.Overlap(transform, attack, hurtboxLayers, _overlapBuffer);
 
             for (int i = 0; i < count; i++)
             {
@@ -291,6 +292,21 @@ namespace VelkhanaSlice.Hunter
             // True Charged Slash chain.
             if (AttackFrame == attack.startupFrames + attack.activeFrames - 1 && _hitThisSwing.Count == 0)
                 _previousHitConnected = false;
+        }
+
+        /// <summary>
+        /// Cuts the current attack short after taking a hit. Hyper-armour moves such as the tackle
+        /// plough through instead, which is the reason to use them.
+        /// </summary>
+        public void Interrupt()
+        {
+            if (HasHyperArmor || CurrentState != State.Attacking) return;
+
+            CurrentAttack = null;
+            ChargeLevel = 0;
+            _bufferedAttack = null;
+            _hitThisSwing.Clear();
+            CurrentState = State.Free;
         }
 
         void EnterRoll()
@@ -322,7 +338,12 @@ namespace VelkhanaSlice.Hunter
 
         void ApplyGravity()
         {
-            if (!_cc.isGrounded) _cc.Move(Vector3.up * (Physics.gravity.y * Time.fixedDeltaTime));
+            // Gravity has to accumulate. Moving by a constant each frame gives a fixed fall speed
+            // rather than a fall, which reads wrong the moment the hunter leaves the ground.
+            if (_cc.isGrounded && _verticalVelocity < 0f) _verticalVelocity = -2f;
+            else _verticalVelocity += Physics.gravity.y * Time.fixedDeltaTime;
+
+            _cc.Move(Vector3.up * (_verticalVelocity * Time.fixedDeltaTime));
         }
 
         void FaceMoveOrAim()

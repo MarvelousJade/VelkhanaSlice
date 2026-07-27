@@ -26,6 +26,8 @@ MonoBehaviour:
   - 2.4
   hyperArmor: 0
   incomingDamageReduction: 0
+  hitboxCenter: {x: 0, y: 1, z: 1.7}
+  hitboxSize: {x: 2.6, y: 2, z: 2.8}
   forwardMotion:
     serializedVersion: 2
     m_Curve:

@@ -17,7 +17,7 @@ MonoBehaviour:
   recoveryFrames: 62
   trackingCutoffFrame: 24
   cancelWindowStart: -1
-  damage: 95
+  damage: 34
   staggerDamage: 0
   chargeMultipliers:
   - 1
@@ -26,6 +26,8 @@ MonoBehaviour:
   - 2.4
   hyperArmor: 0
   incomingDamageReduction: 0
+  hitboxCenter: {x: 0, y: 1, z: 9}
+  hitboxSize: {x: 10, y: 2, z: 10}
   forwardMotion:
     serializedVersion: 2
     m_Curve:

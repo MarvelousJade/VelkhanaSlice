@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 using VelkhanaSlice.Combat;
+using VelkhanaSlice.Hunter;
 
 namespace VelkhanaSlice.Monster
 {
@@ -46,10 +47,13 @@ namespace VelkhanaSlice.Monster
     /// Velkhana's decision layer. Picks attacks from context and weight, never from player input.
     /// Runs on the same fixed 60 Hz step as the hunter.
     /// </summary>
-    public class VelkhanaBrain : MonoBehaviour
+    public class VelkhanaBrain : MonoBehaviour, IAttacker
     {
         [Header("Target")]
         public Transform hunter;
+
+        [Tooltip("Layers searched for the hunter when an attack's hitbox is active.")]
+        public LayerMask hunterLayers = ~0;
 
         [Header("Range bands (metres)")]
         public float closeRange = 6f;
@@ -87,6 +91,9 @@ namespace VelkhanaSlice.Monster
         int _armorBreaks;
         MonsterAttackOption _lastUsed;
         Vector3 _committedAimDirection;
+        // Sized for the widest sweep box. A full buffer silently drops targets, so leave headroom.
+        readonly Collider[] _overlapBuffer = new Collider[32];
+        readonly HashSet<HunterHealth> _hitThisAttack = new HashSet<HunterHealth>();
 
         void OnEnable()
         {
@@ -122,6 +129,23 @@ namespace VelkhanaSlice.Monster
             picked.CooldownRemaining = picked.cooldownFrames;
             CurrentAttack = picked.attack;
             AttackFrame = 0;
+            _hitThisAttack.Clear();
+        }
+
+        /// <summary>
+        /// Applies the active hitbox to the hunter, once per attack. The hunter side decides what
+        /// the hit is worth, since roll invulnerability and hyper armour live there.
+        /// </summary>
+        void CheckHunterHit(AttackDefinition attack)
+        {
+            int count = AttackHitbox.Overlap(transform, attack, hunterLayers, _overlapBuffer);
+
+            for (int i = 0; i < count; i++)
+            {
+                var health = _overlapBuffer[i].GetComponentInParent<HunterHealth>();
+                if (health == null || !_hitThisAttack.Add(health)) continue;
+                health.TakeDamage(attack.damage);
+            }
         }
 
         /// <summary>
@@ -159,6 +183,8 @@ namespace VelkhanaSlice.Monster
 
             if (_committedAimDirection.sqrMagnitude > 0.001f && CurrentAttack.CanTrack(AttackFrame))
                 transform.rotation = Quaternion.LookRotation(_committedAimDirection, Vector3.up);
+
+            if (CurrentAttack.IsHitActive(AttackFrame)) CheckHunterHit(CurrentAttack);
 
             // Velkhana never cancels out of an attack; it always plays to its recovery.
             if (++AttackFrame < CurrentAttack.TotalFrames) return;

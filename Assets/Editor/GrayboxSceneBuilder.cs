@@ -25,11 +25,13 @@ namespace VelkhanaSlice.EditorTools
         const string AttackFolder = "Assets/Data/Attacks";
         const string MaterialFolder = "Assets/Data/Materials";
         const string HurtboxLayer = "Hurtbox";
+        const string HunterLayer = "Hunter";
 
         [MenuItem("Velkhana/Rebuild Graybox Scene")]
         public static void Build()
         {
             int hurtboxLayer = EnsureLayer(HurtboxLayer);
+            int hunterLayer = EnsureLayer(HunterLayer);
             EnsureFolder("Assets/Scenes");
             EnsureFolder("Assets/Data");
             EnsureFolder(AttackFolder);
@@ -44,9 +46,15 @@ namespace VelkhanaSlice.EditorTools
             BuildLighting();
             BuildGround();
 
-            var hunter = BuildHunter(gs, hurtboxLayer);
+            var hunter = BuildHunter(gs, hurtboxLayer, hunterLayer);
             var camera = BuildCamera(hunter);
-            var velkhana = BuildVelkhana(hunter.transform, velk, hurtboxLayer);
+            var velkhana = BuildVelkhana(hunter.transform, velk, hurtboxLayer, hunterLayer);
+
+            // One telegraph component serves both sides, since both play AttackDefinitions.
+            var telegraphMaterial = Mat("M_Telegraph", new Color(1f, 0.7f, 0.2f));
+            telegraphMaterial.EnableKeyword("_EMISSION");
+            hunter.AddComponent<AttackTelegraph>().material = telegraphMaterial;
+            velkhana.AddComponent<AttackTelegraph>().material = telegraphMaterial;
 
             // Centre between the two so a 11 m separation stays inside a 55 degree vertical FOV.
             var rig = camera.AddComponent<CameraRig>();
@@ -56,7 +64,12 @@ namespace VelkhanaSlice.EditorTools
             rig.offset = new Vector3(0f, 22f, -13.5f);
 
             // Inert unless the player is launched with -autoshots, so it costs nothing in a normal run.
-            new GameObject("AutoScreenshot").AddComponent<DebugTools.AutoScreenshot>();
+            new GameObject("ScriptedPlaythrough").AddComponent<DebugTools.ScriptedPlaythrough>();
+
+            var hud = new GameObject("CombatHud").AddComponent<DebugTools.CombatHud>();
+            hud.health = hunter.GetComponent<HunterHealth>();
+            hud.hunterController = hunter.GetComponent<HunterController>();
+            hud.brain = velkhana.GetComponent<VelkhanaBrain>();
 
             EditorSceneManager.SaveScene(scene, ScenePath);
             EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(ScenePath, true) };
@@ -74,7 +87,8 @@ namespace VelkhanaSlice.EditorTools
         /// </summary>
         static AttackDefinition Attack(
             string name, int startup, int active, int recovery, int cutoff,
-            float damage, float stagger, Action<AttackDefinition> tweak = null)
+            float damage, float stagger, Vector3 hitboxCenter, Vector3 hitboxSize,
+            Action<AttackDefinition> tweak = null)
         {
             string path = $"{AttackFolder}/{name}.asset";
             var attack = AssetDatabase.LoadAssetAtPath<AttackDefinition>(path);
@@ -92,6 +106,8 @@ namespace VelkhanaSlice.EditorTools
             attack.damage = damage;
             attack.staggerDamage = stagger;
             attack.chargeMultipliers = new[] { 1f, 1.4f, 1.8f, 2.4f };
+            attack.hitboxCenter = hitboxCenter;
+            attack.hitboxSize = hitboxSize;
             attack.hyperArmor = false;
             attack.incomingDamageReduction = 0f;
             attack.forwardMotion = AnimationCurve.EaseInOut(0f, 0f, 1f, 1f);
@@ -113,10 +129,15 @@ namespace VelkhanaSlice.EditorTools
         {
             var gs = new GreatSword();
 
-            gs.DrawSlash = Attack("GS_DrawSlash", 22, 4, 34, 14, 90f, 35f, a => a.forwardMotionScale = 1.4f);
-            gs.WideSlash = Attack("GS_WideSlash", 18, 5, 30, 12, 70f, 45f);
+            gs.DrawSlash = Attack("GS_DrawSlash", 22, 4, 34, 14, 90f, 35f,
+                new Vector3(0f, 1f, 1.7f), new Vector3(2.6f, 2f, 2.8f),
+                a => a.forwardMotionScale = 1.4f);
 
-            gs.Tackle = Attack("GS_Tackle", 10, 6, 22, 6, 30f, 20f, a =>
+            gs.WideSlash = Attack("GS_WideSlash", 18, 5, 30, 12, 70f, 45f,
+                new Vector3(0f, 1f, 1.4f), new Vector3(3.6f, 2f, 2.4f));
+
+            gs.Tackle = Attack("GS_Tackle", 10, 6, 22, 6, 30f, 20f,
+                new Vector3(0f, 1f, 1.2f), new Vector3(1.6f, 2f, 2.2f), a =>
             {
                 a.hyperArmor = true;
                 a.incomingDamageReduction = 0.5f;
@@ -124,19 +145,22 @@ namespace VelkhanaSlice.EditorTools
                 a.cancelWindowStart = 16;
             });
 
-            gs.TrueCharged = Attack("GS_TrueChargedSlash", 30, 6, 52, 16, 180f, 90f, a =>
+            gs.TrueCharged = Attack("GS_TrueChargedSlash", 30, 6, 52, 16, 180f, 90f,
+                new Vector3(0f, 1f, 2f), new Vector3(3.4f, 2f, 3.6f), a =>
             {
                 a.requiresPreviousHitConnected = true;
                 a.forwardMotionScale = 1.8f;
             });
 
-            gs.StrongCharged = Attack("GS_StrongChargedSlash", 26, 5, 44, 15, 130f, 70f, a =>
+            gs.StrongCharged = Attack("GS_StrongChargedSlash", 26, 5, 44, 15, 130f, 70f,
+                new Vector3(0f, 1f, 1.9f), new Vector3(3.0f, 2f, 3.2f), a =>
             {
                 a.forwardMotionScale = 1.6f;
                 a.cancelWindowStart = 40;
             });
 
-            gs.ChargedSlash = Attack("GS_ChargedSlash", 24, 5, 40, 14, 100f, 55f, a =>
+            gs.ChargedSlash = Attack("GS_ChargedSlash", 24, 5, 40, 14, 100f, 55f,
+                new Vector3(0f, 1f, 1.8f), new Vector3(2.8f, 2f, 3.0f), a =>
             {
                 a.forwardMotionScale = 1.5f;
                 a.cancelWindowStart = 36;
@@ -164,13 +188,25 @@ namespace VelkhanaSlice.EditorTools
 
         static VelkhanaMoves BuildVelkhanaAttacks()
         {
+            // Velkhana's local +Z points at the hunter, so reach is the Z extent of each box.
             return new VelkhanaMoves
             {
-                TailThrust = Attack("VK_TailThrust", 28, 6, 34, 20, 60f, 0f, a => a.forwardMotionScale = 1.0f),
-                BodyCheck = Attack("VK_BodyCheck", 34, 8, 40, 22, 75f, 0f, a => a.forwardMotionScale = 4.5f),
-                IceBeam = Attack("VK_IceBeam", 46, 20, 50, 30, 85f, 0f),
-                SweepingBreath = Attack("VK_SweepingBreath", 52, 26, 56, 34, 70f, 0f),
-                IceSpires = Attack("VK_IceSpires", 60, 10, 62, 24, 95f, 0f),
+                TailThrust = Attack("VK_TailThrust", 28, 6, 34, 20, 22f, 0f,
+                    new Vector3(0f, 1f, 5.5f), new Vector3(1.8f, 2f, 6f),
+                    a => a.forwardMotionScale = 1.0f),
+
+                BodyCheck = Attack("VK_BodyCheck", 34, 8, 40, 22, 75f, 0f,
+                    new Vector3(0f, 1f, 4f), new Vector3(4.5f, 2f, 6f),
+                    a => a.forwardMotionScale = 4.5f),
+
+                IceBeam = Attack("VK_IceBeam", 46, 20, 50, 30, 30f, 0f,
+                    new Vector3(0f, 1f, 11f), new Vector3(2.6f, 2f, 18f)),
+
+                SweepingBreath = Attack("VK_SweepingBreath", 52, 26, 56, 34, 26f, 0f,
+                    new Vector3(0f, 1f, 8f), new Vector3(14f, 2f, 10f)),
+
+                IceSpires = Attack("VK_IceSpires", 60, 10, 62, 24, 34f, 0f,
+                    new Vector3(0f, 1f, 9f), new Vector3(10f, 2f, 10f)),
             };
         }
 
@@ -239,9 +275,10 @@ namespace VelkhanaSlice.EditorTools
             }
         }
 
-        static GameObject BuildHunter(GreatSword gs, int hurtboxLayer)
+        static GameObject BuildHunter(GreatSword gs, int hurtboxLayer, int hunterLayer)
         {
             var hunter = new GameObject("Hunter");
+            hunter.layer = hunterLayer;
             hunter.transform.position = new Vector3(0f, 1f, -5f);
 
             var cc = hunter.AddComponent<CharacterController>();
@@ -283,6 +320,8 @@ namespace VelkhanaSlice.EditorTools
             controller.tackle = gs.Tackle;
             controller.bladePoint = blade.transform;
             controller.hurtboxLayers = 1 << hurtboxLayer;
+
+            hunter.AddComponent<HunterHealth>().maxHealth = 150f;
 
             return hunter;
         }
@@ -338,7 +377,7 @@ namespace VelkhanaSlice.EditorTools
             }
         }
 
-        static GameObject BuildVelkhana(Transform hunter, VelkhanaMoves moves, int hurtboxLayer)
+        static GameObject BuildVelkhana(Transform hunter, VelkhanaMoves moves, int hurtboxLayer, int hunterLayer)
         {
             var root = new GameObject("Velkhana");
             root.transform.position = new Vector3(0f, 0f, 6f);
@@ -357,6 +396,13 @@ namespace VelkhanaSlice.EditorTools
                 new PartSpec("RearLegR", BodyPart.RearLeg,  new Vector3(1.4f, 0.9f, -1.4f), new Vector3(0.8f, 1.8f, 0.8f), 0.85f, 380f, false),
                 new PartSpec("Tail",     BodyPart.Tail,     new Vector3(0f, 1.8f, -4.5f),   new Vector3(0.8f, 0.8f, 5.0f), 0.75f, 420f, true),
             };
+
+            // Hurtboxes are triggers, so without a solid body the hunter walks straight through her.
+            var blocker = new GameObject("BodyBlocker");
+            blocker.transform.SetParent(root.transform, false);
+            var blockerCollider = blocker.AddComponent<BoxCollider>();
+            blockerCollider.center = new Vector3(0f, 1.5f, 0.5f);
+            blockerCollider.size = new Vector3(3.0f, 3f, 6f);
 
             var armored = new List<BodyPartHurtbox>();
 
@@ -382,6 +428,7 @@ namespace VelkhanaSlice.EditorTools
 
             var brain = root.AddComponent<VelkhanaBrain>();
             brain.hunter = hunter;
+            brain.hunterLayers = 1 << hunterLayer;
             brain.armoredParts = armored.ToArray();
             brain.options = new List<MonsterAttackOption>
             {
