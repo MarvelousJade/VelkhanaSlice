@@ -18,15 +18,22 @@ The simulation runs at a fixed 60 Hz (`ProjectSettings/TimeManager.asset`). All 
 in `FixedUpdate`, and code drives displacement rather than animation, so timings can be compared
 frame by frame against reference footage.
 
-## Wiring a scene
+## The graybox scene
 
-1. Hunter: empty GameObject with `CharacterController` + `HunterController`. Add a child transform
-   for `bladePoint` and set `hurtboxLayers` to the monster's layer.
-2. Camera: perspective, pitched 55–65 degrees, assigned to the hunter's `aimCamera`.
-3. Velkhana: `VelkhanaBrain` with `hunter` pointing at the hunter transform. Add a child collider
-   per body part with `BodyPartHurtbox`, and list the armoured ones in `armoredParts`.
-4. Attacks: `Create > Velkhana > Attack Definition` per move. Fill frame counts from reference
-   footage, then link `followUps` to build the combo graph.
+`Assets/Scenes/Graybox.unity` is generated, not hand-authored. Rebuild it from
+**Velkhana > Rebuild Graybox Scene**, or in batch mode:
+
+```
+Unity.exe -batchmode -quit -projectPath . -executeMethod VelkhanaSlice.EditorTools.GrayboxSceneBuilder.Build -logFile -
+```
+
+Edit `Assets/Editor/GrayboxSceneBuilder.cs` and rebuild rather than editing the scene by hand, so
+the arena setup stays reviewable as a diff. The builder creates the `Hurtbox` layer, the eleven
+placeholder `AttackDefinition` assets under `Assets/Data/Attacks`, a hunter with its blade point
+and camera, and Velkhana with nine body-part hurtboxes.
+
+The frame counts in the builder are placeholders. They are the numbers to overwrite from
+frame-stepped reference footage, and nothing else has to change when they do.
 
 Controls are read straight from `Gamepad.current` / `Keyboard.current` / `Mouse.current`. There is
 no `.inputactions` asset yet, so bindings are fixed: left stick or WASD to move, right stick or
@@ -35,11 +42,22 @@ east button or space to roll, south button or F to sheathe.
 
 ## Tests
 
+Edit-mode tests cover the frame-window and damage maths. Play-mode tests drive real fixed frames
+and check that the graybox scene is wired.
+
 ```
-"C:\Program Files\Unity\Hub\Editor\6000.4.11f1\Editor\Unity.exe" -batchmode -projectPath . -runTests -testPlatform EditMode -testResults results.xml -logFile -
+Unity.exe -batchmode -projectPath . -runTests -testPlatform EditMode -testResults edit.xml -logFile -
+Unity.exe -batchmode -projectPath . -runTests -testPlatform PlayMode -testResults play.xml -logFile -
 ```
+
+Unity's exit code is 0 even when compilation fails, so check the log for `error CS` rather than
+trusting the exit status.
 
 ## Not built yet
 
 `ArenaHazardManager`, pooled `IceWall` / `IceSpire`, `CombatTelemetryRecorder`, guard and sharpness,
 lock-on, Slinger Burst, tail sever. See the plan document for where each belongs.
+
+The hunter's own input path has no automated coverage: driving it needs `InputTestFixture` from
+the Input System package, which needs `testables` in the manifest. Worth adding when combo-buffering
+and cancel windows are tuned, since that is where the state machine gets subtle.

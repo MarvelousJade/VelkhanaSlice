@@ -146,6 +146,31 @@ namespace VelkhanaSlice.Tests
         }
 
         [Test]
+        public void ChargeLevelClimbsWithHoldLengthAndDropsOnOvercharge()
+        {
+            var go = new GameObject("hunter");
+            try
+            {
+                var hunter = go.AddComponent<VelkhanaSlice.Hunter.HunterController>();
+                hunter.chargeThresholds = new[] { 40, 75, 110 };
+                hunter.overchargeFrames = 45;
+
+                Assert.AreEqual(0, hunter.ChargeLevelFor(0));
+                Assert.AreEqual(0, hunter.ChargeLevelFor(39), "one frame short of level 1");
+                Assert.AreEqual(1, hunter.ChargeLevelFor(40));
+                Assert.AreEqual(2, hunter.ChargeLevelFor(75));
+                Assert.AreEqual(3, hunter.ChargeLevelFor(110));
+                Assert.AreEqual(3, hunter.ChargeLevelFor(154), "still full one frame before overcharge");
+                Assert.AreEqual(1, hunter.ChargeLevelFor(155), "overcharge drops the swing back down");
+                Assert.AreEqual(1, hunter.ChargeLevelFor(400));
+            }
+            finally
+            {
+                Object.DestroyImmediate(go);
+            }
+        }
+
+        [Test]
         public void HyperArmorMoveReducesIncomingDamage()
         {
             var tackle = MakeAttack();

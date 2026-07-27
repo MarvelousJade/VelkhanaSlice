@@ -217,7 +217,8 @@ namespace VelkhanaSlice.Hunter
             }
         }
 
-        int ChargeLevelFor(int heldFrames)
+        /// <summary>Charge level for a hold length. Public so the thresholds can be tested directly.</summary>
+        public int ChargeLevelFor(int heldFrames)
         {
             int level = 0;
             for (int i = 0; i < chargeThresholds.Length; i++)

@@ -1,4 +1,6 @@
 ﻿<Solution>
   <Project Path="VelkhanaSlice.csproj" />
   <Project Path="VelkhanaSlice.Tests.csproj" />
+  <Project Path="Assembly-CSharp-Editor.csproj" />
+  <Project Path="VelkhanaSlice.PlayTests.csproj" />
 </Solution>
