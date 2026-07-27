@@ -60,6 +60,9 @@ namespace VelkhanaSlice.Monster
         public int neutralFrames = 60;
         [Range(0.1f, 1f)] public float poweredPacingMultiplier = 0.65f;
 
+        [Tooltip("How fast Velkhana turns to face the hunter between attacks.")]
+        public float idleTurnDegreesPerSecond = 90f;
+
         [Header("Attacks")]
         public List<MonsterAttackOption> options = new List<MonsterAttackOption>();
 
@@ -103,6 +106,8 @@ namespace VelkhanaSlice.Monster
 
             if (CurrentAttack != null) { TickAttack(); return; }
 
+            TurnTowardHunter();
+
             int pacing = stage == ArmorStage.Neutral
                 ? neutralFrames
                 : Mathf.RoundToInt(neutralFrames * poweredPacingMultiplier);
@@ -117,6 +122,23 @@ namespace VelkhanaSlice.Monster
             picked.CooldownRemaining = picked.cooldownFrames;
             CurrentAttack = picked.attack;
             AttackFrame = 0;
+        }
+
+        /// <summary>
+        /// Faces the hunter between attacks. Without this a monster whose options all require the
+        /// hunter in front can end up facing away and never choose anything again, which is exactly
+        /// what happens when the player circles behind it.
+        /// </summary>
+        void TurnTowardHunter()
+        {
+            if (hunter == null) return;
+            Vector3 direction = DirectionToHunter();
+            if (direction.sqrMagnitude < 0.001f) return;
+
+            transform.rotation = Quaternion.RotateTowards(
+                transform.rotation,
+                Quaternion.LookRotation(direction, Vector3.up),
+                idleTurnDegreesPerSecond * Time.fixedDeltaTime);
         }
 
         void TickCooldowns()

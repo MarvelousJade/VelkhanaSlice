@@ -4,6 +4,7 @@ using System.IO;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.Rendering;
 using VelkhanaSlice.Combat;
 using VelkhanaSlice.Hunter;
 using VelkhanaSlice.Monster;
@@ -22,6 +23,7 @@ namespace VelkhanaSlice.EditorTools
     {
         const string ScenePath = "Assets/Scenes/Graybox.unity";
         const string AttackFolder = "Assets/Data/Attacks";
+        const string MaterialFolder = "Assets/Data/Materials";
         const string HurtboxLayer = "Hurtbox";
 
         [MenuItem("Velkhana/Rebuild Graybox Scene")]
@@ -31,6 +33,7 @@ namespace VelkhanaSlice.EditorTools
             EnsureFolder("Assets/Scenes");
             EnsureFolder("Assets/Data");
             EnsureFolder(AttackFolder);
+            EnsureFolder(MaterialFolder);
 
             var gs = BuildGreatSwordAttacks();
             var velk = BuildVelkhanaAttacks();
@@ -40,9 +43,20 @@ namespace VelkhanaSlice.EditorTools
 
             BuildLighting();
             BuildGround();
+
             var hunter = BuildHunter(gs, hurtboxLayer);
-            BuildCamera(hunter);
-            BuildVelkhana(hunter.transform, velk, hurtboxLayer);
+            var camera = BuildCamera(hunter);
+            var velkhana = BuildVelkhana(hunter.transform, velk, hurtboxLayer);
+
+            // Centre between the two so a 11 m separation stays inside a 55 degree vertical FOV.
+            var rig = camera.AddComponent<CameraRig>();
+            rig.target = hunter.transform;
+            rig.secondaryTarget = velkhana.transform;
+            rig.secondaryBias = 0.5f;
+            rig.offset = new Vector3(0f, 22f, -13.5f);
+
+            // Inert unless the player is launched with -autoshots, so it costs nothing in a normal run.
+            new GameObject("AutoScreenshot").AddComponent<DebugTools.AutoScreenshot>();
 
             EditorSceneManager.SaveScene(scene, ScenePath);
             EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(ScenePath, true) };
@@ -162,28 +176,73 @@ namespace VelkhanaSlice.EditorTools
 
         // ---------- scene ----------
 
+        /// <summary>
+        /// An empty scene carries no lighting settings and every primitive shares one white
+        /// material, which renders as a white-on-white blowout. Both have to be set explicitly.
+        /// </summary>
         static void BuildLighting()
         {
             var go = new GameObject("Directional Light");
             var light = go.AddComponent<Light>();
             light.type = LightType.Directional;
-            light.intensity = 1.1f;
+            light.intensity = 0.85f;
             light.color = new Color(0.85f, 0.92f, 1f);
+            light.shadows = LightShadows.Soft;
             go.transform.rotation = Quaternion.Euler(50f, -30f, 0f);
+
+            RenderSettings.skybox = null;
+            RenderSettings.ambientMode = AmbientMode.Flat;
+            RenderSettings.ambientLight = new Color(0.22f, 0.26f, 0.33f);
+            RenderSettings.fog = false;
+        }
+
+        static Material Mat(string name, Color color)
+        {
+            string path = $"{MaterialFolder}/{name}.mat";
+            var material = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (material == null)
+            {
+                material = new Material(Shader.Find("Standard"));
+                AssetDatabase.CreateAsset(material, path);
+            }
+
+            material.color = color;
+            material.SetFloat("_Glossiness", 0.1f);
+            EditorUtility.SetDirty(material);
+            return material;
+        }
+
+        static void Paint(GameObject go, Material material)
+        {
+            var renderer = go.GetComponent<Renderer>();
+            if (renderer != null) renderer.sharedMaterial = material;
         }
 
         static void BuildGround()
         {
             var ground = GameObject.CreatePrimitive(PrimitiveType.Plane);
             ground.name = "Arena";
-            ground.transform.localScale = new Vector3(6f, 1f, 6f); // 60 m across
+            ground.transform.localScale = new Vector3(10f, 1f, 10f); // 100 m, wider than the camera sees
             ground.isStatic = true;
+            Paint(ground, Mat("M_Arena", new Color(0.30f, 0.34f, 0.40f)));
+
+            // Metre markers, so movement and attack reach are readable in a screenshot.
+            var stripe = Mat("M_Marker", new Color(0.38f, 0.43f, 0.50f));
+            for (int z = -20; z <= 20; z += 5)
+            {
+                var line = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                line.name = $"Marker{z}";
+                line.transform.position = new Vector3(0f, 0.01f, z);
+                line.transform.localScale = new Vector3(40f, 0.02f, 0.12f);
+                UnityEngine.Object.DestroyImmediate(line.GetComponent<Collider>());
+                Paint(line, stripe);
+            }
         }
 
         static GameObject BuildHunter(GreatSword gs, int hurtboxLayer)
         {
             var hunter = new GameObject("Hunter");
-            hunter.transform.position = new Vector3(0f, 1f, -6f);
+            hunter.transform.position = new Vector3(0f, 1f, -5f);
 
             var cc = hunter.AddComponent<CharacterController>();
             cc.height = 2f;
@@ -194,6 +253,7 @@ namespace VelkhanaSlice.EditorTools
             body.name = "Body";
             body.transform.SetParent(hunter.transform, false);
             UnityEngine.Object.DestroyImmediate(body.GetComponent<Collider>());
+            Paint(body, Mat("M_Hunter", new Color(0.92f, 0.55f, 0.18f)));
 
             var nose = GameObject.CreatePrimitive(PrimitiveType.Cube);
             nose.name = "FacingMarker";
@@ -201,6 +261,16 @@ namespace VelkhanaSlice.EditorTools
             nose.transform.localPosition = new Vector3(0f, 0f, 0.5f);
             nose.transform.localScale = new Vector3(0.2f, 0.2f, 0.6f);
             UnityEngine.Object.DestroyImmediate(nose.GetComponent<Collider>());
+            Paint(nose, Mat("M_HunterFacing", new Color(1f, 0.85f, 0.3f)));
+
+            // Stands in for the sword arc so the reach of a swing is visible.
+            var sword = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            sword.name = "SwordVisual";
+            sword.transform.SetParent(hunter.transform, false);
+            sword.transform.localPosition = new Vector3(0.35f, 0.2f, 0.9f);
+            sword.transform.localScale = new Vector3(0.12f, 0.12f, 1.8f);
+            UnityEngine.Object.DestroyImmediate(sword.GetComponent<Collider>());
+            Paint(sword, Mat("M_Sword", new Color(0.75f, 0.78f, 0.85f)));
 
             var blade = new GameObject("BladePoint");
             blade.transform.SetParent(hunter.transform, false);
@@ -217,15 +287,16 @@ namespace VelkhanaSlice.EditorTools
             return hunter;
         }
 
-        static void BuildCamera(GameObject hunter)
+        static GameObject BuildCamera(GameObject hunter)
         {
             var go = new GameObject("Main Camera");
             go.tag = "MainCamera";
             var cam = go.AddComponent<Camera>();
-            cam.fieldOfView = 50f;
+            cam.fieldOfView = 55f;
             cam.nearClipPlane = 0.3f;
             cam.farClipPlane = 200f;
-            cam.backgroundColor = new Color(0.16f, 0.20f, 0.26f);
+            cam.clearFlags = CameraClearFlags.SolidColor;
+            cam.backgroundColor = new Color(0.10f, 0.13f, 0.18f);
 
             // 58 degrees: inside the 55-65 band the plan calls for, so ground hazards stay readable.
             go.transform.rotation = Quaternion.Euler(58f, 0f, 0f);
@@ -233,6 +304,7 @@ namespace VelkhanaSlice.EditorTools
 
             go.AddComponent<AudioListener>();
             hunter.GetComponent<HunterController>().aimCamera = cam;
+            return go;
         }
 
         readonly struct PartSpec
@@ -253,10 +325,24 @@ namespace VelkhanaSlice.EditorTools
             }
         }
 
-        static void BuildVelkhana(Transform hunter, VelkhanaMoves moves, int hurtboxLayer)
+        /// <summary>Head reads hottest because it is the Great Sword's punish target.</summary>
+        static Color PartColor(BodyPart part)
+        {
+            switch (part)
+            {
+                case BodyPart.Head: return new Color(0.86f, 0.30f, 0.26f);
+                case BodyPart.Torso: return new Color(0.44f, 0.51f, 0.62f);
+                case BodyPart.Wing: return new Color(0.56f, 0.76f, 0.86f);
+                case BodyPart.Tail: return new Color(0.34f, 0.62f, 0.60f);
+                default: return new Color(0.37f, 0.44f, 0.57f);
+            }
+        }
+
+        static GameObject BuildVelkhana(Transform hunter, VelkhanaMoves moves, int hurtboxLayer)
         {
             var root = new GameObject("Velkhana");
-            root.transform.position = new Vector3(0f, 0f, 8f);
+            root.transform.position = new Vector3(0f, 0f, 6f);
+            root.transform.rotation = Quaternion.LookRotation(hunter.position - root.transform.position, Vector3.up);
 
             // Head takes the most damage, which is what makes it the Great Sword's punish target.
             var specs = new[]
@@ -283,6 +369,7 @@ namespace VelkhanaSlice.EditorTools
                 go.transform.localPosition = spec.Position;
                 go.transform.localScale = spec.Size;
                 go.GetComponent<BoxCollider>().isTrigger = true;
+                Paint(go, Mat($"M_{spec.Part}", PartColor(spec.Part)));
 
                 var hurtbox = go.AddComponent<BodyPartHurtbox>();
                 hurtbox.part = spec.Part;
@@ -304,6 +391,8 @@ namespace VelkhanaSlice.EditorTools
                 Option(moves.SweepingBreath, RangeBand.Medium, ArmorStage.IceArmorStage1, 1.2f, 360, false),
                 Option(moves.IceSpires,      RangeBand.Far,    ArmorStage.Neutral,        1.0f, 420, false),
             };
+
+            return root;
         }
 
         static MonsterAttackOption Option(

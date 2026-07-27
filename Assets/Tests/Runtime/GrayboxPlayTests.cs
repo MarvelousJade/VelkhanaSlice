@@ -166,6 +166,34 @@ namespace VelkhanaSlice.PlayTests
         }
 
         [UnityTest]
+        public IEnumerator BrainTurnsAroundInsteadOfDeadlockingWhenTheHunterIsBehindIt()
+        {
+            var attack = MakeAttack(6, 2, 6, 4);
+            var brain = MakeBrain(out var root, out var hunter, attack);
+
+            // Every option needs the hunter in front, and Velkhana starts facing the other way.
+            brain.options[0].requiresHunterInFront = true;
+            brain.idleTurnDegreesPerSecond = 180f;
+            root.transform.rotation = Quaternion.LookRotation(Vector3.back, Vector3.up);
+            hunter.transform.position = new Vector3(0f, 0f, 4f);
+
+            try
+            {
+                int waited = 0;
+                while (brain.CurrentAttack == null && waited++ < FrameBudget)
+                    yield return new WaitForFixedUpdate();
+
+                Assert.IsNotNull(brain.CurrentAttack,
+                    "brain never turned to face the hunter, so no option ever became legal");
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+                Object.DestroyImmediate(hunter);
+            }
+        }
+
+        [UnityTest]
         public IEnumerator GrayboxSceneIsFullyWired()
         {
             SceneManager.LoadScene("Graybox", LoadSceneMode.Single);
