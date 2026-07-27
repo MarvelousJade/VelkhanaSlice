@@ -37,9 +37,10 @@ namespace VelkhanaSlice.DebugTools
                 string attack = hunterController.CurrentAttack != null
                     ? $"{hunterController.CurrentAttack.name} f{hunterController.AttackFrame}"
                     : "-";
-                GUI.Label(new Rect(20f, 50f, 600f, 24f),
+                Vector3 p = hunterController.transform.position;
+                GUI.Label(new Rect(20f, 50f, 800f, 24f),
                     $"state {hunterController.CurrentState}  charge {hunterController.ChargeLevel}  " +
-                    $"drawn {hunterController.WeaponDrawn}  attack {attack}", _label);
+                    $"drawn {hunterController.WeaponDrawn}  pos({p.x:0.0},{p.z:0.0})  attack {attack}", _label);
             }
 
             if (brain != null)

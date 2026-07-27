@@ -63,6 +63,7 @@ namespace VelkhanaSlice.Hunter
         int _chargeFrames;
         int _hitstopFrames;
         int _sheatheTimer;
+        bool _sheatheTarget;
         float _verticalVelocity;
         bool _previousHitConnected;
         Vector3 _aimDirection = Vector3.forward;
@@ -173,13 +174,17 @@ namespace VelkhanaSlice.Hunter
         {
             if (_sheatheTimer > 0)
             {
-                _sheatheTimer--;
-                if (_sheatheTimer == 0) WeaponDrawn = !WeaponDrawn;
+                // Apply the state the swap was started for. Toggling here instead would undo an
+                // attack that drew the weapon while the swap was still running.
+                if (--_sheatheTimer == 0) WeaponDrawn = _sheatheTarget;
                 return;
             }
 
             if (_sheathePressed && CurrentState == State.Free)
+            {
+                _sheatheTarget = !WeaponDrawn;
                 _sheatheTimer = WeaponDrawn ? sheatheFrames : drawFrames;
+            }
         }
 
         void TickFree()
@@ -235,6 +240,10 @@ namespace VelkhanaSlice.Hunter
         void BeginAttack(AttackDefinition attack)
         {
             if (attack == null) { CurrentState = State.Free; return; }
+
+            // Attacking always means the weapon is out, so abandon any swap in progress.
+            _sheatheTimer = 0;
+            WeaponDrawn = true;
 
             CurrentAttack = attack;
             CurrentState = State.Attacking;

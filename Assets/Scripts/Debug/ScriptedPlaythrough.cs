@@ -30,6 +30,7 @@ namespace VelkhanaSlice.DebugTools
             public bool attack;
             public bool secondary;
             public bool dodge;
+            public bool sheathe;
 
             [Tooltip("Frames into the beat at which to capture. Empty captures on the last frame.")]
             public int[] captureAt = Array.Empty<int>();
@@ -49,6 +50,12 @@ namespace VelkhanaSlice.DebugTools
             new Beat { label = "09_watch_monster", frames = 150, captureAt = new[] { 40, 80, 120, 145 } },
             new Beat { label = "10_close_in",      frames = 90, move = new Vector2(0f, 1f), captureAt = new[] { 85 } },
             new Beat { label = "11_monster_range", frames = 240, captureAt = new[] { 60, 120, 180, 235 } },
+
+            // Same 90 frames of running, drawn then sheathed. The distance covered should differ
+            // by the ratio of drawnSpeed to sheathedSpeed.
+            new Beat { label = "12_run_drawn",     frames = 90, move = new Vector2(0f, -1f), captureAt = new[] { 0, 89 } },
+            new Beat { label = "13_sheathe",       frames = 40, sheathe = true, captureAt = new[] { 5, 35 } },
+            new Beat { label = "14_run_sheathed",  frames = 90, move = new Vector2(0f, -1f), captureAt = new[] { 0, 89 } },
         };
 
         [Tooltip("Seconds to wait after the last capture so files are flushed before quitting.")]
@@ -122,6 +129,7 @@ namespace VelkhanaSlice.DebugTools
                 state = state.WithButton(GamepadButton.West, beat.attack);
                 state = state.WithButton(GamepadButton.North, beat.secondary);
                 state = state.WithButton(GamepadButton.East, beat.dodge);
+                state = state.WithButton(GamepadButton.South, beat.sheathe);
             }
 
             InputSystem.QueueStateEvent(_pad, state);
