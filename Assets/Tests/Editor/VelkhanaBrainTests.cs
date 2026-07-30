@@ -118,5 +118,26 @@ namespace VelkhanaSlice.Tests
                 VelkhanaBrain.DesiredDistanceForOption(option, 8.5f, 17f),
                 0.001f);
         }
+
+        [Test]
+        public void CombatMainNode006UsesExactForcedAndFiftyFiftyBoundaries()
+        {
+            Assert.AreEqual(
+                VelkhanaAerialOptionFamily.Global051,
+                VelkhanaBrain.SelectCombatMainNode006(true, 99),
+                "the unresolved predicate's true branch forces Global051");
+            Assert.AreEqual(
+                VelkhanaAerialOptionFamily.Global051,
+                VelkhanaBrain.SelectCombatMainNode006(false, 0));
+            Assert.AreEqual(
+                VelkhanaAerialOptionFamily.Global051,
+                VelkhanaBrain.SelectCombatMainNode006(false, 49));
+            Assert.AreEqual(
+                VelkhanaAerialOptionFamily.Global052,
+                VelkhanaBrain.SelectCombatMainNode006(false, 50));
+            Assert.AreEqual(
+                VelkhanaAerialOptionFamily.Global052,
+                VelkhanaBrain.SelectCombatMainNode006(false, 99));
+        }
     }
 }

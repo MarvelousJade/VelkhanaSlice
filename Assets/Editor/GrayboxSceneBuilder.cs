@@ -384,6 +384,8 @@ namespace VelkhanaSlice.EditorTools
             public AttackDefinition FreezeBreath;
             public AttackDefinition IceSpires;
             public AttackDefinition VerticalBreathFly;
+            public AttackDefinition VerticalBreathFlyToGround;
+            public AttackDefinition IceWaveStartFly;
             public AttackDefinition FlyTailStingToGround;
         }
 
@@ -440,6 +442,16 @@ namespace VelkhanaSlice.EditorTools
 
                 VerticalBreathFly = Attack("VK_VerticalBreathFly", 40, 18, 28, 20, 38f, 24f,
                     new Vector3(0f, 0.8f, 3f), new Vector3(8f, 2f, 8f)),
+
+                // Semantic placeholders for Combat_Main.node_006. Timings and poses are original
+                // graybox work; only the decoded action identities come from the reference table.
+                VerticalBreathFlyToGround = Attack(
+                    "VK_VerticalBreathFlyToGround", 42, 18, 30, 20, 40f, 24f,
+                    new Vector3(0f, 0.8f, 3f), new Vector3(8f, 2f, 8f)),
+
+                IceWaveStartFly = Attack(
+                    "VK_IceWaveStartFly", 38, 16, 26, 20, 36f, 24f,
+                    new Vector3(0f, 0.8f, 7f), new Vector3(7f, 2f, 12f)),
 
                 FlyTailStingToGround = Attack(
                     "VK_FlyTailStingToGround", 36, 8, 34, 19, 56f, 34f,
@@ -939,7 +951,18 @@ namespace VelkhanaSlice.EditorTools
                     modeWeights: new Vector3(0.45f, 1.15f, 1.4f), enragedMultiplier: 1.3f,
                     minimumStage: ArmorStage.IceArmorStage1),
 
-                // Global.node_063: takeoff, interrupt, two aerial attacks, interrupt, landing attack.
+                // Explicit ground gateway into Combat_Main.node_006. Its pending action is not
+                // played: takeoff completes in airborne Observe and the exact chooser dispatches.
+                EmOption(
+                    "Combat_Main.node_006.entry", moves.VerticalBreathFly, RangeBand.Medium,
+                    4f, 17f, 0f, 180f, 6f, 520,
+                    modeWeights: new Vector3(0f, 0.8f, 1.2f), enragedMultiplier: 1.5f,
+                    minimumStage: ArmorStage.IceArmorStage1,
+                    modes: VelkhanaCombatModeMask.Mode1 | VelkhanaCombatModeMask.Mode2,
+                    takeOff: true,
+                    enterAerialChooser: true),
+
+                // Global.node_063 remains its independently inferred takeoff/aerial/landing string.
                 EmOption(
                     "Global.node_063", moves.VerticalBreathFly, RangeBand.Medium,
                     4f, 17f, 0f, 180f, 10f, 520,
@@ -953,6 +976,22 @@ namespace VelkhanaSlice.EditorTools
                     },
                     takeOff: true,
                     landAfter: true),
+
+                // Combat_Main.node_006 target families. Generic weights/cooldowns/history are
+                // bypassed while airborne; the decoded selector chooses only by family.
+                EmOption(
+                    "Global.node_051", moves.VerticalBreathFlyToGround, RangeBand.Medium,
+                    0f, 28f, 0f, 180f, 1f, 0,
+                    modeWeights: Vector3.one, enragedMultiplier: 1f,
+                    airRequirement: VelkhanaAirRequirement.Airborne,
+                    aerialFamily: VelkhanaAerialOptionFamily.Global051,
+                    landAfter: true),
+                EmOption(
+                    "Global.node_052", moves.IceWaveStartFly, RangeBand.Medium,
+                    0f, 28f, 0f, 180f, 1f, 0,
+                    modeWeights: Vector3.one, enragedMultiplier: 1f,
+                    airRequirement: VelkhanaAirRequirement.Airborne,
+                    aerialFamily: VelkhanaAerialOptionFamily.Global052),
             };
             brain.RefreshHurtboxBindings();
 
@@ -987,6 +1026,8 @@ namespace VelkhanaSlice.EditorTools
             presentation.freezeBreath = moves.FreezeBreath;
             presentation.iceSpires = moves.IceSpires;
             presentation.verticalBreathFly = moves.VerticalBreathFly;
+            presentation.verticalBreathFlyToGround = moves.VerticalBreathFlyToGround;
+            presentation.iceWaveStartFly = moves.IceWaveStartFly;
             presentation.flyTailStingToGround = moves.FlyTailStingToGround;
 
             return root;
@@ -1010,7 +1051,10 @@ namespace VelkhanaSlice.EditorTools
             AttackDefinition[] calmFollowUps = null,
             AttackDefinition[] enragedFollowUps = null,
             bool takeOff = false,
-            bool landAfter = false)
+            bool landAfter = false,
+            bool enterAerialChooser = false,
+            VelkhanaAirRequirement airRequirement = VelkhanaAirRequirement.Grounded,
+            VelkhanaAerialOptionFamily aerialFamily = VelkhanaAerialOptionFamily.None)
         {
             return new MonsterAttackOption
             {
@@ -1029,12 +1073,15 @@ namespace VelkhanaSlice.EditorTools
                 minimumFacingAngle = minimumFacingAngle,
                 maximumFacingAngle = maximumFacingAngle,
                 modes = modes,
+                airRequirement = airRequirement,
+                aerialFamily = aerialFamily,
                 mode0WeightMultiplier = modeWeights.x,
                 mode1WeightMultiplier = modeWeights.y,
                 mode2WeightMultiplier = modeWeights.z,
                 calmFollowUps = calmFollowUps ?? Array.Empty<AttackDefinition>(),
                 enragedFollowUps = enragedFollowUps ?? Array.Empty<AttackDefinition>(),
                 takeOffBeforeSequence = takeOff,
+                enterAerialChooserAfterTakeoff = enterAerialChooser,
                 landAfterSequence = landAfter,
             };
         }

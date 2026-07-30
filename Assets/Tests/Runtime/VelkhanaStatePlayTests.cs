@@ -191,6 +191,8 @@ namespace VelkhanaSlice.PlayTests
 
                 Assert.AreEqual(VelkhanaState.Takeoff, brain.CurrentState);
                 Assert.IsFalse(brain.IsAirborne);
+                Assert.AreEqual(VelkhanaContext.AerialCombat, brain.CurrentContext,
+                    "Takeoff must expose its aerial context in the entry frame");
 
                 while (brain.CurrentAttack == null && budget-- > 0)
                     yield return new WaitForFixedUpdate();
@@ -207,12 +209,260 @@ namespace VelkhanaSlice.PlayTests
                     yield return new WaitForFixedUpdate();
 
                 Assert.AreEqual(VelkhanaState.Observe, brain.CurrentState);
+                Assert.IsTrue(
+                    brain.CurrentContext == VelkhanaContext.GroundCombat ||
+                    brain.CurrentContext == VelkhanaContext.CombatEntry,
+                    "landing completion must expose a grounded context in the completion frame");
             }
             finally
             {
                 Object.DestroyImmediate(root);
                 Object.DestroyImmediate(hunter);
                 Object.DestroyImmediate(attack);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator GroundedSelectorExcludesNode006AerialFamilies()
+        {
+            AttackDefinition groundAttack = Attack(2, 1, 2);
+            AttackDefinition aerialAttack = Attack(2, 1, 2);
+            VelkhanaBrain brain = Brain(
+                new Vector3(0f, 0f, 3f), RangeBand.Close, groundAttack,
+                out GameObject root, out GameObject hunter);
+            brain.options.Insert(0, new MonsterAttackOption
+            {
+                attack = aerialAttack,
+                band = RangeBand.Close,
+                weight = 10000f,
+                aerialFamily = VelkhanaAerialOptionFamily.Global051,
+                airRequirement = VelkhanaAirRequirement.Airborne,
+            });
+
+            try
+            {
+                int budget = 20;
+                while (brain.CurrentAttack == null && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+
+                Assert.AreSame(groundAttack, brain.CurrentAttack,
+                    "ground selection must exclude node_006 family options before weighting");
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+                Object.DestroyImmediate(hunter);
+                Object.DestroyImmediate(groundAttack);
+                Object.DestroyImmediate(aerialAttack);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator GroundGatewayTakesOffChoosesOnlyAerialFamilyAndLands()
+        {
+            AttackDefinition gatewayMarker = Attack(2, 1, 2);
+            AttackDefinition groundTrap = Attack(2, 1, 2);
+            AttackDefinition global051 = Attack(2, 1, 2);
+            AttackDefinition global052 = Attack(2, 1, 2);
+            VelkhanaBrain brain = Brain(
+                new Vector3(0f, 0f, 3f), RangeBand.Close, gatewayMarker,
+                out GameObject root, out GameObject hunter);
+
+            MonsterAttackOption gateway = brain.options[0];
+            gateway.thkNode = "Combat_Main.node_006.entry";
+            gateway.takeOffBeforeSequence = true;
+            gateway.enterAerialChooserAfterTakeoff = true;
+            brain.options.Add(new MonsterAttackOption
+            {
+                attack = groundTrap,
+                band = RangeBand.Far,
+                weight = 10000f,
+                thkNode = "GroundTrap",
+            });
+            brain.options.Add(new MonsterAttackOption
+            {
+                attack = global051,
+                aerialFamily = VelkhanaAerialOptionFamily.Global051,
+                airRequirement = VelkhanaAirRequirement.Airborne,
+                landAfterSequence = true,
+                thkNode = "Global.node_051",
+            });
+            brain.options.Add(new MonsterAttackOption
+            {
+                attack = global052,
+                aerialFamily = VelkhanaAerialOptionFamily.Global052,
+                airRequirement = VelkhanaAirRequirement.Airborne,
+                thkNode = "Global.node_052",
+            });
+            brain.combatMainNode006Predicate101 = true;
+            brain.takeoffFrames = 2;
+            brain.landingFrames = 2;
+
+            try
+            {
+                int budget = 100;
+                while (brain.CurrentState != VelkhanaState.Takeoff && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+
+                Assert.AreEqual(VelkhanaState.Takeoff, brain.CurrentState);
+
+                while (!brain.IsAirborne && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+
+                Assert.IsTrue(brain.IsAirborne);
+                Assert.AreEqual(VelkhanaState.Observe, brain.CurrentState,
+                    "the gateway must finish takeoff in airborne Observe");
+                Assert.IsNull(brain.CurrentAttack,
+                    "the gateway marker is not an aerial family attack");
+
+                while (brain.CurrentAttack == null && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+
+                Assert.AreSame(global051, brain.CurrentAttack);
+                Assert.AreNotSame(groundTrap, brain.CurrentAttack,
+                    "airborne node_006 must never fall through to ground options");
+                Assert.AreEqual("Global.node_051", brain.CurrentThkNode);
+
+                while (brain.CurrentState != VelkhanaState.Landing && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+
+                Assert.AreEqual(VelkhanaState.Landing, brain.CurrentState);
+                while (brain.IsAirborne && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+
+                Assert.IsFalse(brain.IsAirborne);
+                Assert.AreEqual(VelkhanaState.Observe, brain.CurrentState);
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+                Object.DestroyImmediate(hunter);
+                Object.DestroyImmediate(gatewayMarker);
+                Object.DestroyImmediate(groundTrap);
+                Object.DestroyImmediate(global051);
+                Object.DestroyImmediate(global052);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator Global052ReturnsToAirborneObserveAndNode006Redispatches()
+        {
+            AttackDefinition gatewayMarker = Attack(2, 1, 2);
+            AttackDefinition global051 = Attack(2, 1, 2);
+            AttackDefinition global052 = Attack(2, 1, 2);
+            VelkhanaBrain brain = Brain(
+                new Vector3(0f, 0f, 3f), RangeBand.Close, gatewayMarker,
+                out GameObject root, out GameObject hunter);
+
+            brain.options[0].takeOffBeforeSequence = true;
+            brain.options[0].enterAerialChooserAfterTakeoff = true;
+            brain.options.Add(new MonsterAttackOption
+            {
+                attack = global051,
+                aerialFamily = VelkhanaAerialOptionFamily.Global051,
+                airRequirement = VelkhanaAirRequirement.Airborne,
+                landAfterSequence = true,
+                thkNode = "Global.node_051",
+            });
+            brain.options.Add(new MonsterAttackOption
+            {
+                attack = global052,
+                aerialFamily = VelkhanaAerialOptionFamily.Global052,
+                airRequirement = VelkhanaAirRequirement.Airborne,
+                landAfterSequence = false,
+                thkNode = "Global.node_052",
+            });
+            brain.combatMainNode006Predicate101 = false;
+            brain.selectionSeed = 0; // first roll chooses the gateway; second is 82 -> Global052.
+            brain.takeoffFrames = 2;
+
+            try
+            {
+                int budget = 100;
+                while (brain.CurrentAttack != global052 && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+
+                Assert.AreSame(global052, brain.CurrentAttack,
+                    "false predicate with the seeded 50..99 roll must dispatch Global052");
+
+                while (brain.CurrentAttack != null && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+
+                Assert.IsTrue(brain.IsAirborne);
+                Assert.AreEqual(VelkhanaState.Observe, brain.CurrentState);
+                Assert.AreNotEqual(VelkhanaState.Landing, brain.CurrentState,
+                    "ice_wave_start_fly remains in aerial combat");
+
+                yield return new WaitForFixedUpdate();
+
+                Assert.IsTrue(brain.IsAirborne);
+                Assert.IsNotNull(brain.CurrentAttack,
+                    "airborne Observe must immediately re-dispatch node_006");
+                Assert.IsTrue(
+                    brain.CurrentAttack == global051 || brain.CurrentAttack == global052);
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+                Object.DestroyImmediate(hunter);
+                Object.DestroyImmediate(gatewayMarker);
+                Object.DestroyImmediate(global051);
+                Object.DestroyImmediate(global052);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator AirborneObserveWithoutHunterBeginsSafeLanding()
+        {
+            AttackDefinition gatewayMarker = Attack(2, 1, 2);
+            AttackDefinition global051 = Attack(2, 1, 2);
+            VelkhanaBrain brain = Brain(
+                new Vector3(0f, 0f, 3f), RangeBand.Close, gatewayMarker,
+                out GameObject root, out GameObject hunter);
+
+            brain.options[0].takeOffBeforeSequence = true;
+            brain.options[0].enterAerialChooserAfterTakeoff = true;
+            brain.options.Add(new MonsterAttackOption
+            {
+                attack = global051,
+                aerialFamily = VelkhanaAerialOptionFamily.Global051,
+                airRequirement = VelkhanaAirRequirement.Airborne,
+                landAfterSequence = true,
+                thkNode = "Global.node_051",
+            });
+            brain.combatMainNode006Predicate101 = true;
+            brain.takeoffFrames = 2;
+            brain.landingFrames = 2;
+
+            try
+            {
+                int budget = 50;
+                while (!brain.IsAirborne && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+
+                Assert.AreEqual(VelkhanaState.Observe, brain.CurrentState);
+                Assert.AreEqual(VelkhanaContext.AerialCombat, brain.CurrentContext);
+
+                brain.hunter = null;
+                yield return new WaitForFixedUpdate();
+
+                Assert.AreEqual(VelkhanaState.Landing, brain.CurrentState);
+                Assert.IsNull(brain.CurrentAttack,
+                    "a missing hunter must not dispatch an aerial family");
+
+                while (brain.IsAirborne && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+
+                Assert.AreEqual(VelkhanaState.Observe, brain.CurrentState);
+                Assert.AreEqual(VelkhanaContext.CombatEntry, brain.CurrentContext,
+                    "landing completion must refresh context in the same frame");
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+                Object.DestroyImmediate(hunter);
+                Object.DestroyImmediate(gatewayMarker);
+                Object.DestroyImmediate(global051);
             }
         }
 

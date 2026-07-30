@@ -73,6 +73,13 @@ namespace VelkhanaSlice.Monster
         Either,
     }
 
+    public enum VelkhanaAerialOptionFamily
+    {
+        None,
+        Global051,
+        Global052,
+    }
+
     /// <summary>One weighted THK-style action or action sequence.</summary>
     [Serializable]
     public class MonsterAttackOption
@@ -117,6 +124,10 @@ namespace VelkhanaSlice.Monster
 
         public VelkhanaCombatModeMask modes = VelkhanaCombatModeMask.All;
         public VelkhanaAirRequirement airRequirement = VelkhanaAirRequirement.Grounded;
+
+        [Tooltip("Combat_Main.node_006 airborne family. None marks ordinary ground options.")]
+        public VelkhanaAerialOptionFamily aerialFamily;
+
         public bool calmOnly;
         public bool enragedOnly;
 
@@ -134,6 +145,9 @@ namespace VelkhanaSlice.Monster
 
         [Tooltip("Enter the aerial context before playing this sequence.")]
         public bool takeOffBeforeSequence;
+
+        [Tooltip("Ground entry only: finish takeoff in airborne Observe, then run Combat_Main.node_006.")]
+        public bool enterAerialChooserAfterTakeoff;
 
         [Tooltip("Return to the ground after this sequence.")]
         public bool landAfterSequence;
@@ -186,6 +200,9 @@ namespace VelkhanaSlice.Monster
         [Header("Aerial context (frames @ 60 Hz)")]
         [Min(1)] public int takeoffFrames = 42;
         [Min(1)] public int landingFrames = 36;
+
+        [Tooltip("Unresolved function#101() predicate used only by Combat_Main.node_006.")]
+        public bool combatMainNode006Predicate101;
 
         [Header("Decoded action table")]
         public List<MonsterAttackOption> options = new List<MonsterAttackOption>();
@@ -258,6 +275,7 @@ namespace VelkhanaSlice.Monster
         readonly Queue<MonsterAttackOption> _recentOptions = new Queue<MonsterAttackOption>(3);
         Vector3 _committedAimDirection;
         System.Random _random;
+        int _randomSeed;
 
         readonly Collider[] _overlapBuffer = new Collider[32];
         readonly HashSet<HunterHealth> _hitThisAttack = new HashSet<HunterHealth>();
@@ -267,6 +285,7 @@ namespace VelkhanaSlice.Monster
         {
             CurrentHealth = Mathf.Max(1f, maxHealth);
             _random = new System.Random(selectionSeed);
+            _randomSeed = selectionSeed;
             DesiredDistance = DesiredDistanceForBand(DesiredBand, closeRange, mediumRange);
 
             if (enraged)
@@ -353,6 +372,10 @@ namespace VelkhanaSlice.Monster
                     TickObserve();
                     break;
             }
+
+            // State ticks can synchronously enter Takeoff/Landing/Observe or change IsAirborne.
+            // Refresh again so CurrentContext describes the state exposed at this frame boundary.
+            UpdateContext();
         }
 
         void TickObserve()
@@ -360,6 +383,21 @@ namespace VelkhanaSlice.Monster
             if (TryEnterPendingRage()) return;
 
             TurnTowardHunter(idleTurnDegreesPerSecond);
+
+            if (IsAirborne)
+            {
+                if (hunter == null)
+                {
+                    BeginLanding();
+                    return;
+                }
+
+                MonsterAttackOption aerial = ChooseCombatMainNode006();
+                if (aerial != null) StartOption(aerial);
+                else BeginLanding();
+                return;
+            }
+
             StateFrame++;
 
             int pacing = stage == ArmorStage.Neutral
@@ -437,7 +475,8 @@ namespace VelkhanaSlice.Monster
             SequenceLength = 1 + _followUps.Length;
             Remember(picked);
 
-            if (picked.takeOffBeforeSequence && !IsAirborne)
+            if ((picked.takeOffBeforeSequence || picked.enterAerialChooserAfterTakeoff) &&
+                !IsAirborne)
             {
                 _pendingTakeoffOption = picked;
                 EnterState(VelkhanaState.Takeoff);
@@ -473,6 +512,13 @@ namespace VelkhanaSlice.Monster
             if (option == null)
             {
                 BeginLanding();
+                return;
+            }
+
+            if (option.enterAerialChooserAfterTakeoff)
+            {
+                ClearSequence();
+                EnterState(VelkhanaState.Observe);
                 return;
             }
 
@@ -690,6 +736,7 @@ namespace VelkhanaSlice.Monster
         MonsterAttackOption Choose()
         {
             if (hunter == null || options.Count == 0) return null;
+            if (IsAirborne) return ChooseCombatMainNode006();
 
             float distance = Distance2DToHunter();
             float vertical = Mathf.Abs(hunter.position.y - transform.position.y);
@@ -703,6 +750,7 @@ namespace VelkhanaSlice.Monster
             {
                 MonsterAttackOption option = options[i];
                 if (option == null || option.attack == null) continue;
+                if (option.aerialFamily != VelkhanaAerialOptionFamily.None) continue;
                 if (option.CooldownRemaining > 0) continue;
                 if (option.minimumStage > stage) continue;
                 if (option.calmOnly && enraged) continue;
@@ -744,10 +792,50 @@ namespace VelkhanaSlice.Monster
             return null;
         }
 
+        MonsterAttackOption ChooseCombatMainNode006()
+        {
+            int roll = combatMainNode006Predicate101
+                ? 0
+                : Mathf.Clamp(Mathf.FloorToInt(NextSelectionValue() * 100f), 0, 99);
+            VelkhanaAerialOptionFamily selected = SelectCombatMainNode006(
+                combatMainNode006Predicate101, roll);
+
+            for (int i = 0; i < options.Count; i++)
+            {
+                MonsterAttackOption option = options[i];
+                if (option != null && option.attack != null &&
+                    option.aerialFamily == selected)
+                    return option;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Exact Combat_Main.node_006 dispatch. function#101() remains an unresolved predicate:
+        /// true forces Global051; false uses the decoded 50/50 Global051/Global052 split.
+        /// </summary>
+        public static VelkhanaAerialOptionFamily SelectCombatMainNode006(
+            bool unresolvedPredicate101,
+            int roll0To99)
+        {
+            if (unresolvedPredicate101) return VelkhanaAerialOptionFamily.Global051;
+            if (roll0To99 < 0 || roll0To99 > 99)
+                throw new ArgumentOutOfRangeException(
+                    nameof(roll0To99), "Combat_Main.node_006 expects a roll from 0 through 99.");
+            return roll0To99 < 50
+                ? VelkhanaAerialOptionFamily.Global051
+                : VelkhanaAerialOptionFamily.Global052;
+        }
+
         float NextSelectionValue()
         {
             if (!deterministicSelection) return UnityEngine.Random.value;
-            _random ??= new System.Random(selectionSeed);
+            if (_random == null || _randomSeed != selectionSeed)
+            {
+                _random = new System.Random(selectionSeed);
+                _randomSeed = selectionSeed;
+            }
             return (float)_random.NextDouble();
         }
 

@@ -47,6 +47,8 @@ namespace VelkhanaSlice.Monster
         public AttackDefinition freezeBreath;
         public AttackDefinition iceSpires;
         public AttackDefinition verticalBreathFly;
+        public AttackDefinition verticalBreathFlyToGround;
+        public AttackDefinition iceWaveStartFly;
         public AttackDefinition flyTailStingToGround;
 
         [Header("Ambient motion")]
@@ -299,9 +301,10 @@ namespace VelkhanaSlice.Monster
                 PoseIceBeam(startup, active, recovery, false);
             else if (attack == sweep90Breath || attack == sweep180Breath)
                 PoseIceBeam(startup, active, recovery, true);
-            else if (attack == iceWave || attack == areaBreath || attack == iceSpires)
+            else if (attack == iceWave || attack == areaBreath || attack == iceSpires ||
+                     attack == iceWaveStartFly)
                 PoseIceSpires(startup, active, recovery);
-            else if (attack == verticalBreathFly)
+            else if (attack == verticalBreathFly || attack == verticalBreathFlyToGround)
                 PoseVerticalBreath(startup, active, recovery);
         }
 
