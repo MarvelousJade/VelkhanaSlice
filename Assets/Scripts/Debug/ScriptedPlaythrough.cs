@@ -31,6 +31,7 @@ namespace VelkhanaSlice.DebugTools
             public bool secondary;
             public bool dodge;
             public bool sheathe;
+            public bool run;
 
             [Tooltip("Frames into the beat at which to capture. Empty captures on the last frame.")]
             public int[] captureAt = Array.Empty<int>();
@@ -43,7 +44,7 @@ namespace VelkhanaSlice.DebugTools
             new Beat { label = "02_approach",      frames = 90, move = new Vector2(0f, 1f), captureAt = new[] { 85 } },
             new Beat { label = "03_drawslash",     frames = 40, attack = true, captureAt = new[] { 24, 34 } },
             new Beat { label = "04_release",       frames = 30 },
-            new Beat { label = "05_charge_hold",   frames = 90, attack = true, captureAt = new[] { 50, 85 } },
+            new Beat { label = "05_charge_hold",   frames = 125, attack = true, captureAt = new[] { 25, 55, 90, 118 } },
             new Beat { label = "06_charged_swing", frames = 45, captureAt = new[] { 8, 26, 40 } },
             new Beat { label = "07_wide_slash",    frames = 40, secondary = true, captureAt = new[] { 18, 24 } },
             new Beat { label = "08_roll",          frames = 40, dodge = true, move = new Vector2(0f, -1f), captureAt = new[] { 8, 20 } },
@@ -51,11 +52,11 @@ namespace VelkhanaSlice.DebugTools
             new Beat { label = "10_close_in",      frames = 90, move = new Vector2(0f, 1f), captureAt = new[] { 85 } },
             new Beat { label = "11_monster_range", frames = 240, captureAt = new[] { 60, 120, 180, 235 } },
 
-            // Same 90 frames of running, drawn then sheathed. The distance covered should differ
-            // by the ratio of drawnSpeed to sheathedSpeed.
-            new Beat { label = "12_run_drawn",     frames = 90, move = new Vector2(0f, -1f), captureAt = new[] { 0, 89 } },
-            new Beat { label = "13_sheathe",       frames = 40, sheathe = true, captureAt = new[] { 5, 35 } },
-            new Beat { label = "14_run_sheathed",  frames = 90, move = new Vector2(0f, -1f), captureAt = new[] { 0, 89 } },
+            // Holding run with the sword out first sheaths it, then accelerates. Attacking from
+            // that sheathed sprint automatically performs the draw slash.
+            new Beat { label = "12_run_auto_sheathe", frames = 50, move = new Vector2(0f, -1f), run = true, captureAt = new[] { 5, 25, 49 } },
+            new Beat { label = "13_sprint",           frames = 90, move = new Vector2(0f, -1f), run = true, captureAt = new[] { 0, 89 } },
+            new Beat { label = "14_attack_auto_draw", frames = 45, attack = true, captureAt = new[] { 0, 20, 40 } },
         };
 
         [Tooltip("Seconds to wait after the last capture so files are flushed before quitting.")]
@@ -130,6 +131,7 @@ namespace VelkhanaSlice.DebugTools
                 state = state.WithButton(GamepadButton.North, beat.secondary);
                 state = state.WithButton(GamepadButton.East, beat.dodge);
                 state = state.WithButton(GamepadButton.South, beat.sheathe);
+                state = state.WithButton(GamepadButton.LeftStick, beat.run);
             }
 
             InputSystem.QueueStateEvent(_pad, state);

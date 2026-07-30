@@ -40,7 +40,8 @@ namespace VelkhanaSlice.DebugTools
                 Vector3 p = hunterController.transform.position;
                 GUI.Label(new Rect(20f, 50f, 800f, 24f),
                     $"state {hunterController.CurrentState}  charge {hunterController.ChargeLevel}  " +
-                    $"drawn {hunterController.WeaponDrawn}  pos({p.x:0.0},{p.z:0.0})  attack {attack}", _label);
+                    $"drawn {hunterController.WeaponDrawn}  running {hunterController.IsRunning}  " +
+                    $"pos({p.x:0.0},{p.z:0.0})  attack {attack}", _label);
             }
 
             if (brain != null)
@@ -48,7 +49,9 @@ namespace VelkhanaSlice.DebugTools
                 string attack = brain.CurrentAttack != null
                     ? $"{brain.CurrentAttack.name} f{brain.AttackFrame}"
                     : "-";
-                GUI.Label(new Rect(20f, 76f, 600f, 24f), $"velkhana {brain.stage}  attack {attack}", _label);
+                GUI.Label(new Rect(20f, 76f, 800f, 24f),
+                    $"velkhana {brain.CurrentState} f{brain.StateFrame}  {brain.stage}  " +
+                    $"enraged {brain.enraged}  target {brain.DesiredBand}  attack {attack}", _label);
 
                 float y = 102f;
                 foreach (var part in brain.GetComponentsInChildren<BodyPartHurtbox>())

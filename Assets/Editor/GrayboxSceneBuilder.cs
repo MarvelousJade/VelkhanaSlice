@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using UnityEditor;
+using UnityEditor.Build.Reporting;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -77,6 +78,29 @@ namespace VelkhanaSlice.EditorTools
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
             Debug.Log($"Graybox scene rebuilt at {ScenePath}");
+        }
+
+        [MenuItem("Velkhana/Rebuild Graybox + Windows Player")]
+        public static void BuildWindowsPlayer()
+        {
+            Build();
+
+            string output = Path.GetFullPath("Build/VelkhanaSlice.exe");
+            Directory.CreateDirectory(Path.GetDirectoryName(output));
+            var report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
+            {
+                scenes = new[] { ScenePath },
+                locationPathName = output,
+                target = BuildTarget.StandaloneWindows64,
+                options = BuildOptions.None,
+            });
+
+            if (report.summary.result != BuildResult.Succeeded)
+                throw new InvalidOperationException(
+                    $"Windows player build failed: {report.summary.result} " +
+                    $"({report.summary.totalErrors} errors)");
+
+            Debug.Log($"Windows player rebuilt at {output}");
         }
 
         // ---------- attack data ----------
@@ -286,25 +310,43 @@ namespace VelkhanaSlice.EditorTools
             cc.radius = 0.4f;
             cc.center = Vector3.zero;
 
+            // Everything under VisualRoot is presentation-only. Rolling and charging can deform
+            // this hierarchy without moving the CharacterController or gameplay hitboxes.
+            var visualRoot = new GameObject("VisualRoot");
+            visualRoot.transform.SetParent(hunter.transform, false);
+
             var body = GameObject.CreatePrimitive(PrimitiveType.Capsule);
             body.name = "Body";
-            body.transform.SetParent(hunter.transform, false);
+            body.transform.SetParent(visualRoot.transform, false);
             UnityEngine.Object.DestroyImmediate(body.GetComponent<Collider>());
             Paint(body, Mat("M_Hunter", new Color(0.92f, 0.55f, 0.18f)));
 
             var nose = GameObject.CreatePrimitive(PrimitiveType.Cube);
             nose.name = "FacingMarker";
-            nose.transform.SetParent(hunter.transform, false);
+            nose.transform.SetParent(visualRoot.transform, false);
             nose.transform.localPosition = new Vector3(0f, 0f, 0.5f);
             nose.transform.localScale = new Vector3(0.2f, 0.2f, 0.6f);
             UnityEngine.Object.DestroyImmediate(nose.GetComponent<Collider>());
             Paint(nose, Mat("M_HunterFacing", new Color(1f, 0.85f, 0.3f)));
 
-            // Stands in for the sword arc so the reach of a swing is visible.
+            var handSocket = new GameObject("HandSocket");
+            handSocket.transform.SetParent(visualRoot.transform, false);
+            handSocket.transform.localPosition = new Vector3(0.42f, 0.08f, 0.92f);
+            handSocket.transform.localRotation = Quaternion.Euler(-8f, 0f, -5f);
+
+            var backSocket = new GameObject("BackSocket");
+            backSocket.transform.SetParent(visualRoot.transform, false);
+            backSocket.transform.localPosition = new Vector3(0f, 0.05f, -0.42f);
+            backSocket.transform.localRotation =
+                Quaternion.LookRotation(new Vector3(0.58f, 0.8f, 0.12f).normalized, Vector3.up);
+
+            // Stands in for the sword arc. It starts sheathed across the hunter's back and the
+            // presentation component moves it to the hand when the combat state draws it.
             var sword = GameObject.CreatePrimitive(PrimitiveType.Cube);
             sword.name = "SwordVisual";
-            sword.transform.SetParent(hunter.transform, false);
-            sword.transform.localPosition = new Vector3(0.35f, 0.2f, 0.9f);
+            sword.transform.SetParent(visualRoot.transform, false);
+            sword.transform.localPosition = backSocket.transform.localPosition;
+            sword.transform.localRotation = backSocket.transform.localRotation;
             sword.transform.localScale = new Vector3(0.12f, 0.12f, 1.8f);
             UnityEngine.Object.DestroyImmediate(sword.GetComponent<Collider>());
             Paint(sword, Mat("M_Sword", new Color(0.75f, 0.78f, 0.85f)));
@@ -320,6 +362,13 @@ namespace VelkhanaSlice.EditorTools
             controller.tackle = gs.Tackle;
             controller.bladePoint = blade.transform;
             controller.hurtboxLayers = 1 << hurtboxLayer;
+
+            var presentation = hunter.AddComponent<HunterPresentation>();
+            presentation.visualRoot = visualRoot.transform;
+            presentation.body = body.transform;
+            presentation.sword = sword.transform;
+            presentation.handSocket = handSocket.transform;
+            presentation.backSocket = backSocket.transform;
 
             hunter.AddComponent<HunterHealth>().maxHealth = 150f;
 
@@ -377,11 +426,144 @@ namespace VelkhanaSlice.EditorTools
             }
         }
 
+        sealed class VelkhanaVisuals
+        {
+            public Transform Root, Torso, Neck, Head, WingL, WingR;
+            public Transform FrontLegL, FrontLegR, RearLegL, RearLegR;
+            public Transform TailRoot, TailMiddle, TailTip, BreathBeam;
+            public Light BreathLight, PhaseLight;
+        }
+
+        static Transform Pivot(Transform parent, string name, Vector3 localPosition)
+        {
+            var pivot = new GameObject(name).transform;
+            pivot.SetParent(parent, false);
+            pivot.localPosition = localPosition;
+            return pivot;
+        }
+
+        static Transform VisualPrimitive(
+            Transform parent,
+            string name,
+            PrimitiveType primitive,
+            Vector3 localPosition,
+            Vector3 localScale,
+            Material material)
+        {
+            var visual = GameObject.CreatePrimitive(primitive);
+            visual.name = name;
+            visual.transform.SetParent(parent, false);
+            visual.transform.localPosition = localPosition;
+            visual.transform.localScale = localScale;
+            UnityEngine.Object.DestroyImmediate(visual.GetComponent<Collider>());
+            Paint(visual, material);
+            return visual.transform;
+        }
+
+        /// <summary>
+        /// Original primitive rig whose proportions follow the extracted EM124 model/motion
+        /// inventory. It never contains gameplay colliders; all damage volumes stay under
+        /// GameplayHurtboxes and continue to use Velkhana's root transform.
+        /// </summary>
+        static VelkhanaVisuals BuildVelkhanaVisuals(Transform parent)
+        {
+            var visuals = new VelkhanaVisuals();
+            visuals.Root = Pivot(parent, "VisualRoot", Vector3.zero);
+            visuals.Torso = Pivot(visuals.Root, "TorsoPivot", new Vector3(0f, 2f, 0.5f));
+            VisualPrimitive(
+                visuals.Torso, "TorsoVisual", PrimitiveType.Cube, Vector3.zero,
+                new Vector3(2.6f, 2.4f, 4.5f), Mat("M_Torso", PartColor(BodyPart.Torso)));
+
+            visuals.Neck = Pivot(visuals.Torso, "NeckPivot", new Vector3(0f, 0.2f, 2.2f));
+            VisualPrimitive(
+                visuals.Neck, "NeckVisual", PrimitiveType.Cube, new Vector3(0f, 0f, 0.9f),
+                new Vector3(0.75f, 0.75f, 1.8f), Mat("M_Neck", new Color(0.48f, 0.62f, 0.72f)));
+
+            visuals.Head = Pivot(visuals.Neck, "HeadPivot", new Vector3(0f, 0f, 1.85f));
+            VisualPrimitive(
+                visuals.Head, "HeadVisual", PrimitiveType.Cube, Vector3.zero,
+                new Vector3(1.2f, 1.1f, 1.65f), Mat("M_Head", PartColor(BodyPart.Head)));
+            VisualPrimitive(
+                visuals.Head, "HeadCrest", PrimitiveType.Cube, new Vector3(0f, 0.75f, -0.2f),
+                new Vector3(0.25f, 1.1f, 1.2f), Mat("M_IceCrest", new Color(0.5f, 0.9f, 1f)));
+
+            visuals.WingL = Pivot(visuals.Torso, "WingLPivot", new Vector3(-1.1f, 0.75f, 0.15f));
+            VisualPrimitive(
+                visuals.WingL, "WingLVisual", PrimitiveType.Cube, new Vector3(-1.5f, 0f, 0f),
+                new Vector3(3f, 0.25f, 2.7f), Mat("M_Wing", PartColor(BodyPart.Wing)));
+            visuals.WingR = Pivot(visuals.Torso, "WingRPivot", new Vector3(1.1f, 0.75f, 0.15f));
+            VisualPrimitive(
+                visuals.WingR, "WingRVisual", PrimitiveType.Cube, new Vector3(1.5f, 0f, 0f),
+                new Vector3(3f, 0.25f, 2.7f), Mat("M_Wing", PartColor(BodyPart.Wing)));
+
+            Material legMaterial = Mat("M_Legs", new Color(0.37f, 0.44f, 0.57f));
+            visuals.FrontLegL = Pivot(visuals.Torso, "FrontLegLPivot", new Vector3(-1.1f, -1.15f, 1.75f));
+            VisualPrimitive(
+                visuals.FrontLegL, "FrontLegLVisual", PrimitiveType.Cube,
+                new Vector3(0f, -0.7f, 0f), new Vector3(0.65f, 1.65f, 0.65f), legMaterial);
+            visuals.FrontLegR = Pivot(visuals.Torso, "FrontLegRPivot", new Vector3(1.1f, -1.15f, 1.75f));
+            VisualPrimitive(
+                visuals.FrontLegR, "FrontLegRVisual", PrimitiveType.Cube,
+                new Vector3(0f, -0.7f, 0f), new Vector3(0.65f, 1.65f, 0.65f), legMaterial);
+            visuals.RearLegL = Pivot(visuals.Torso, "RearLegLPivot", new Vector3(-1.2f, -1.1f, -1.65f));
+            VisualPrimitive(
+                visuals.RearLegL, "RearLegLVisual", PrimitiveType.Cube,
+                new Vector3(0f, -0.7f, 0f), new Vector3(0.75f, 1.7f, 0.75f), legMaterial);
+            visuals.RearLegR = Pivot(visuals.Torso, "RearLegRPivot", new Vector3(1.2f, -1.1f, -1.65f));
+            VisualPrimitive(
+                visuals.RearLegR, "RearLegRVisual", PrimitiveType.Cube,
+                new Vector3(0f, -0.7f, 0f), new Vector3(0.75f, 1.7f, 0.75f), legMaterial);
+
+            Material tailMaterial = Mat("M_Tail", PartColor(BodyPart.Tail));
+            visuals.TailRoot = Pivot(visuals.Torso, "TailRoot", new Vector3(0f, 0f, -2.25f));
+            VisualPrimitive(
+                visuals.TailRoot, "TailRootVisual", PrimitiveType.Cube,
+                new Vector3(0f, 0f, -1.1f), new Vector3(0.9f, 0.9f, 2.2f), tailMaterial);
+            visuals.TailMiddle = Pivot(visuals.TailRoot, "TailMiddle", new Vector3(0f, 0f, -2.2f));
+            VisualPrimitive(
+                visuals.TailMiddle, "TailMiddleVisual", PrimitiveType.Cube,
+                new Vector3(0f, 0f, -1f), new Vector3(0.68f, 0.68f, 2f), tailMaterial);
+            visuals.TailTip = Pivot(visuals.TailMiddle, "TailTip", new Vector3(0f, 0f, -2f));
+            VisualPrimitive(
+                visuals.TailTip, "TailTipVisual", PrimitiveType.Cube,
+                new Vector3(0f, 0f, -0.8f), new Vector3(0.38f, 0.38f, 1.6f),
+                Mat("M_TailTip", new Color(0.55f, 0.9f, 1f)));
+
+            Material beamMaterial = Mat("M_IceBreath", new Color(0.32f, 0.9f, 1f));
+            beamMaterial.EnableKeyword("_EMISSION");
+            beamMaterial.SetColor("_EmissionColor", new Color(0.2f, 0.8f, 1f) * 2.2f);
+            visuals.BreathBeam = VisualPrimitive(
+                visuals.Head, "BreathBeam", PrimitiveType.Cube,
+                new Vector3(0f, 0f, 6f), new Vector3(0.28f, 0.28f, 11f), beamMaterial);
+            visuals.BreathBeam.GetComponent<Renderer>().enabled = false;
+
+            var breathGlow = new GameObject("BreathGlow");
+            breathGlow.transform.SetParent(visuals.Head, false);
+            breathGlow.transform.localPosition = new Vector3(0f, 0f, 1.1f);
+            visuals.BreathLight = breathGlow.AddComponent<Light>();
+            visuals.BreathLight.type = LightType.Point;
+            visuals.BreathLight.range = 7f;
+            visuals.BreathLight.shadows = LightShadows.None;
+            visuals.BreathLight.enabled = false;
+
+            var phaseGlow = new GameObject("PhaseGlow");
+            phaseGlow.transform.SetParent(visuals.Torso, false);
+            phaseGlow.transform.localPosition = new Vector3(0f, 1f, 0f);
+            visuals.PhaseLight = phaseGlow.AddComponent<Light>();
+            visuals.PhaseLight.type = LightType.Point;
+            visuals.PhaseLight.range = 9f;
+            visuals.PhaseLight.shadows = LightShadows.None;
+            visuals.PhaseLight.enabled = false;
+
+            return visuals;
+        }
+
         static GameObject BuildVelkhana(Transform hunter, VelkhanaMoves moves, int hurtboxLayer, int hunterLayer)
         {
             var root = new GameObject("Velkhana");
             root.transform.position = new Vector3(0f, 0f, 6f);
             root.transform.rotation = Quaternion.LookRotation(hunter.position - root.transform.position, Vector3.up);
+            VelkhanaVisuals visuals = BuildVelkhanaVisuals(root.transform);
 
             // Head takes the most damage, which is what makes it the Great Sword's punish target.
             var specs = new[]
@@ -405,17 +587,18 @@ namespace VelkhanaSlice.EditorTools
             blockerCollider.size = new Vector3(3.0f, 3f, 6f);
 
             var armored = new List<BodyPartHurtbox>();
+            Transform gameplayHurtboxes = Pivot(root.transform, "GameplayHurtboxes", Vector3.zero);
 
             foreach (var spec in specs)
             {
-                var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                go.name = spec.Name;
+                // These are invisible, stationary gameplay volumes. Procedural animation only
+                // touches the separate VisualRoot hierarchy created above.
+                var go = new GameObject($"{spec.Name}Hurtbox");
                 go.layer = hurtboxLayer;
-                go.transform.SetParent(root.transform, false);
+                go.transform.SetParent(gameplayHurtboxes, false);
                 go.transform.localPosition = spec.Position;
                 go.transform.localScale = spec.Size;
-                go.GetComponent<BoxCollider>().isTrigger = true;
-                Paint(go, Mat($"M_{spec.Part}", PartColor(spec.Part)));
+                go.AddComponent<BoxCollider>().isTrigger = true;
 
                 var hurtbox = go.AddComponent<BodyPartHurtbox>();
                 hurtbox.part = spec.Part;
@@ -430,21 +613,46 @@ namespace VelkhanaSlice.EditorTools
             brain.hunter = hunter;
             brain.hunterLayers = 1 << hunterLayer;
             brain.armoredParts = armored.ToArray();
+            brain.closeRange = 8.5f;
+            brain.mediumRange = 17f;
             brain.options = new List<MonsterAttackOption>
             {
-                Option(moves.TailThrust,     RangeBand.Close,  ArmorStage.Neutral,        1.0f, 150, false),
-                Option(moves.BodyCheck,      RangeBand.Close,  ArmorStage.Neutral,        0.8f, 240, true),
-                Option(moves.IceBeam,        RangeBand.Medium, ArmorStage.Neutral,        1.0f, 300, true),
-                Option(moves.SweepingBreath, RangeBand.Medium, ArmorStage.IceArmorStage1, 1.2f, 360, false),
-                Option(moves.IceSpires,      RangeBand.Far,    ArmorStage.Neutral,        1.0f, 420, false),
+                Option(moves.TailThrust,     RangeBand.Close,  ArmorStage.Neutral,        1.0f, 150, false, 0.75f),
+                Option(moves.BodyCheck,      RangeBand.Close,  ArmorStage.Neutral,        0.8f, 240, true,  1.25f),
+                Option(moves.IceBeam,        RangeBand.Medium, ArmorStage.Neutral,        1.0f, 300, true,  1.35f),
+                Option(moves.SweepingBreath, RangeBand.Medium, ArmorStage.IceArmorStage1, 1.2f, 360, false, 1.5f),
+                Option(moves.IceSpires,      RangeBand.Far,    ArmorStage.Neutral,        1.0f, 420, false, 1.4f),
             };
+
+            var presentation = root.AddComponent<VelkhanaPresentation>();
+            presentation.visualRoot = visuals.Root;
+            presentation.torsoPivot = visuals.Torso;
+            presentation.neckPivot = visuals.Neck;
+            presentation.headPivot = visuals.Head;
+            presentation.wingLPivot = visuals.WingL;
+            presentation.wingRPivot = visuals.WingR;
+            presentation.frontLegLPivot = visuals.FrontLegL;
+            presentation.frontLegRPivot = visuals.FrontLegR;
+            presentation.rearLegLPivot = visuals.RearLegL;
+            presentation.rearLegRPivot = visuals.RearLegR;
+            presentation.tailRoot = visuals.TailRoot;
+            presentation.tailMiddle = visuals.TailMiddle;
+            presentation.tailTip = visuals.TailTip;
+            presentation.breathBeam = visuals.BreathBeam;
+            presentation.breathLight = visuals.BreathLight;
+            presentation.phaseLight = visuals.PhaseLight;
+            presentation.tailThrust = moves.TailThrust;
+            presentation.bodyCheck = moves.BodyCheck;
+            presentation.iceBeam = moves.IceBeam;
+            presentation.sweepingBreath = moves.SweepingBreath;
+            presentation.iceSpires = moves.IceSpires;
 
             return root;
         }
 
         static MonsterAttackOption Option(
             AttackDefinition attack, RangeBand band, ArmorStage stage,
-            float weight, int cooldown, bool requiresFront)
+            float weight, int cooldown, bool requiresFront, float enragedWeightMultiplier)
         {
             return new MonsterAttackOption
             {
@@ -454,6 +662,7 @@ namespace VelkhanaSlice.EditorTools
                 weight = weight,
                 cooldownFrames = cooldown,
                 requiresHunterInFront = requiresFront,
+                enragedWeightMultiplier = enragedWeightMultiplier,
             };
         }
 

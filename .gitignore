@@ -38,3 +38,6 @@ crashlytics-build.properties
 # OS noise
 .DS_Store
 Thumbs.db
+
+# Locally extracted Monster Hunter: World reference data
+/Reference/MHW/

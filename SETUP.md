@@ -13,8 +13,10 @@ Unity 6000.4.11f1. Open the folder in Unity Hub; the editor generates `Library/`
 | `Combat/AttackHitbox.cs` | `IAttacker` plus the shared box query both sides use |
 | `Combat/AttackTelegraph.cs` | Ground projection of the active hitbox, amber winding up, red on active frames |
 | `Hunter/HunterController.cs` | Movement, sheathing, charge levels, attack playback, roll |
+| `Hunter/HunterPresentation.cs` | Procedural graybox roll, sword draw/sheathe, charge pose and basic swing |
 | `Hunter/HunterHealth.cs` | Applies roll invulnerability and hyper-armour reduction to incoming hits |
-| `Monster/VelkhanaBrain.cs` | Armour stages plus weighted, context-driven attack selection |
+| `Monster/VelkhanaBrain.cs` | Observable combat states, direct range/angle repositioning, armour stages and weighted attack selection |
+| `Monster/VelkhanaPresentation.cs` | Procedural body, wing, neck, tail, breath and phase poses for the placeholder monster |
 | `CameraRig.cs` | Angled follow camera framing hunter and monster together |
 | `Debug/ScriptedPlaythrough.cs` | Virtual gamepad that plays a scripted fight and screenshots each beat |
 | `Debug/CombatHud.cs` | IMGUI readout of health, charge, attack frame and part damage |
@@ -33,6 +35,10 @@ frame by frame against reference footage.
 Unity.exe -batchmode -quit -projectPath . -executeMethod VelkhanaSlice.EditorTools.GrayboxSceneBuilder.Build -logFile -
 ```
 
+To rebuild both the generated scene and Windows player in one step, use
+**Velkhana > Rebuild Graybox + Windows Player**. It writes `Build/VelkhanaSlice.exe`
+and ensures the player scene and script assembly are generated together.
+
 Edit `Assets/Editor/GrayboxSceneBuilder.cs` and rebuild rather than editing the scene by hand, so
 the arena setup stays reviewable as a diff. The builder creates the `Hurtbox` layer, the eleven
 placeholder `AttackDefinition` assets under `Assets/Data/Attacks`, a hunter with its blade point
@@ -41,15 +47,38 @@ and camera, and Velkhana with nine body-part hurtboxes.
 The frame counts in the builder are placeholders. They are the numbers to overwrite from
 frame-stepped reference footage, and nothing else has to change when they do.
 
+Velkhana's decision ranges use the decoded EM124 `Combat_Enter` thresholds: 8.5 m close and
+17 m medium, treating the game's distance units as centimetres. `Combat_Main` also has distinct
+enraged/non-enraged weighted branches, represented by `enraged` and each option's
+`enragedWeightMultiplier`. The implementation is intentionally smaller than the full THK graph.
+
+Velkhana has a separate, collider-free `VisualRoot` containing named torso, neck, head, wing, leg
+and three-piece tail pivots. `VelkhanaPresentation` poses it for tail thrust, body check, straight
+beam, sweeping breath and ice spires, plus idle/reposition movement and armour-phase glow. The nine
+stationary gameplay volumes live under `GameplayHurtboxes`; procedural animation never moves them
+or the solid `BodyBlocker`. Her extracted `em124_00..08.lmt`/`.mbd` files confirm where the original
+animation banks live, but remain private reference files outside `Assets`.
+
+The capsule hunter uses a presentation-only `VisualRoot` with hand and back sword sockets.
+`HunterPresentation` poses that hierarchy from the combat state, so it never moves the
+`CharacterController` or hitboxes. No rig or Blender file is needed for these graybox animations.
+During a charge, the sword pulls behind the hunter and the hunter's emissive glow progresses from
+white to yellow to red as the three charge thresholds are reached.
+When final humanoid art arrives, replace this procedural component with an Animator while keeping
+`HunterController` as the source of gameplay timing.
+
 Controls are read straight from `Gamepad.current` / `Keyboard.current` / `Mouse.current`. There is
 no `.inputactions` asset yet, so bindings are fixed: left stick or WASD to move, right stick or
-mouse to aim, west button or left mouse to charge, north button or right mouse for the secondary,
-east button or space to roll, south button or F to sheathe.
+mouse to aim, west button or left mouse to charge/attack, north button or right mouse for the
+secondary, east button or space to roll, south button or F to manually draw/sheathe, and left-stick
+click or either Shift key to run. Running automatically sheathes a drawn sword before accelerating;
+attacking while sheathed automatically draws it with the draw slash.
 
 ## Tests
 
-Edit-mode tests cover the frame-window and damage maths. Play-mode tests drive real fixed frames
-and check that the graybox scene is wired.
+Edit-mode tests cover frame-window, damage and direct steering maths. Play-mode tests drive real
+fixed frames, verify observable attack/recovery/reposition states, and check that the visual rig
+cannot accidentally acquire gameplay colliders.
 
 ```
 Unity.exe -batchmode -projectPath . -runTests -testPlatform EditMode -testResults edit.xml -logFile -
@@ -80,9 +109,9 @@ outside the game window and does not depend on window focus.
 `ArenaHazardManager`, pooled `IceWall` / `IceSpire`, `CombatTelemetryRecorder`, guard and sharpness,
 lock-on, Slinger Burst, tail sever. See the plan document for where each belongs.
 
-Velkhana has no locomotion outside attacks that carry forward motion, so she never walks toward the
-hunter. Her attacks have no effects beyond the ground telegraph. Death is tracked on `HunterHealth`
-but nothing reacts to it, so there is still no win or lose.
+Velkhana's repositioning is direct graybox locomotion rather than obstacle-aware navigation, and
+the breath beam is a presentation-only primitive rather than a final effect. Death is tracked on
+`HunterHealth` but nothing reacts to it, so there is still no win or lose.
 
 The hunter's own input path has no automated coverage: driving it needs `InputTestFixture` from
 the Input System package, which needs `testables` in the manifest. Worth adding when combo-buffering

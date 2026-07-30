@@ -316,6 +316,30 @@ namespace VelkhanaSlice.PlayTests
             foreach (var option in brain.options)
                 Assert.IsNotNull(option.attack, "an attack option has no definition");
 
+            var presentation = Object.FindFirstObjectByType<VelkhanaPresentation>();
+            Assert.IsNotNull(presentation, "no procedural VelkhanaPresentation in the graybox scene");
+            Assert.IsNotNull(presentation.visualRoot, "Velkhana visual root is unassigned");
+            Assert.IsNotNull(presentation.torsoPivot, "Velkhana torso pivot is unassigned");
+            Assert.IsNotNull(presentation.neckPivot, "Velkhana neck pivot is unassigned");
+            Assert.IsNotNull(presentation.headPivot, "Velkhana head pivot is unassigned");
+            Assert.IsNotNull(presentation.wingLPivot, "Velkhana left wing pivot is unassigned");
+            Assert.IsNotNull(presentation.wingRPivot, "Velkhana right wing pivot is unassigned");
+            Assert.IsNotNull(presentation.tailRoot, "Velkhana tail root is unassigned");
+            Assert.IsNotNull(presentation.tailMiddle, "Velkhana tail middle is unassigned");
+            Assert.IsNotNull(presentation.tailTip, "Velkhana tail tip is unassigned");
+            Assert.IsNotNull(presentation.tailThrust, "tail thrust pose mapping is unassigned");
+            Assert.IsNotNull(presentation.bodyCheck, "body check pose mapping is unassigned");
+            Assert.IsNotNull(presentation.iceBeam, "ice beam pose mapping is unassigned");
+            Assert.IsNotNull(presentation.sweepingBreath, "sweeping breath pose mapping is unassigned");
+            Assert.IsNotNull(presentation.iceSpires, "ice spires pose mapping is unassigned");
+            Assert.IsEmpty(presentation.visualRoot.GetComponentsInChildren<Collider>(true),
+                "presentation hierarchy must never contain gameplay colliders");
+
+            Transform gameplayHurtboxes = brain.transform.Find("GameplayHurtboxes");
+            Assert.IsNotNull(gameplayHurtboxes, "stationary GameplayHurtboxes root is missing");
+            Assert.AreEqual(9, gameplayHurtboxes.GetComponentsInChildren<BodyPartHurtbox>(true).Length,
+                "all nine gameplay hurtboxes must remain outside the animated visual hierarchy");
+
             var hurtboxes = Object.FindObjectsByType<BodyPartHurtbox>(FindObjectsSortMode.None);
             Assert.AreEqual(9, hurtboxes.Length, "expected nine body part hurtboxes");
 

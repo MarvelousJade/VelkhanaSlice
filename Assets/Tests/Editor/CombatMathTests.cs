@@ -171,6 +171,22 @@ namespace VelkhanaSlice.Tests
         }
 
         [Test]
+        public void ChargePresentationProgressesFromWhiteToYellowToRed()
+        {
+            int[] thresholds = { 40, 75, 110 };
+
+            Color white = VelkhanaSlice.Hunter.HunterPresentation.ChargeGlowColor(20, thresholds);
+            Color yellow = VelkhanaSlice.Hunter.HunterPresentation.ChargeGlowColor(75, thresholds);
+            Color red = VelkhanaSlice.Hunter.HunterPresentation.ChargeGlowColor(110, thresholds);
+
+            Assert.AreEqual(Color.white.r, white.r, 0.001f);
+            Assert.AreEqual(Color.white.g, white.g, 0.001f);
+            Assert.Greater(yellow.g, red.g, "the middle charge stage should read yellow");
+            Assert.Greater(red.r, 0.95f);
+            Assert.Less(red.g, 0.1f);
+        }
+
+        [Test]
         public void HyperArmorMoveReducesIncomingDamage()
         {
             var tackle = MakeAttack();

@@ -18,6 +18,8 @@ namespace VelkhanaSlice.Hunter
         [Header("Movement (metres per second)")]
         public float sheathedSpeed = 5.5f;
         public float drawnSpeed = 2.2f;
+        [System.NonSerialized]
+        public float runningSpeed = 7.5f;
         public float turnDegreesPerSecond = 720f;
 
         [Header("Roll (frames @ 60 Hz)")]
@@ -55,6 +57,20 @@ namespace VelkhanaSlice.Hunter
         public int ChargeLevel { get; private set; }
         public AttackDefinition CurrentAttack { get; private set; }
         public int AttackFrame { get; private set; }
+        public int StateFrame => _stateFrame;
+        public int ChargeFrames => _chargeFrames;
+        public bool IsWeaponTransitioning => _sheatheTimer > 0;
+        public bool WeaponTransitionDrawn => IsWeaponTransitioning ? _sheatheTarget : WeaponDrawn;
+        public float WeaponTransitionProgress =>
+            _sheatheTimer > 0 && _sheatheDuration > 0
+                ? 1f - (float)_sheatheTimer / _sheatheDuration
+                : 1f;
+        public bool IsRunning =>
+            CurrentState == State.Free &&
+            _runHeld &&
+            !WeaponDrawn &&
+            !IsWeaponTransitioning &&
+            _moveInput.sqrMagnitude > 0.02f;
         public bool IsInvulnerable => CurrentState == State.Rolling && _stateFrame >= rollInvulnStart && _stateFrame < rollInvulnEnd;
         public bool HasHyperArmor => CurrentState == State.Attacking && CurrentAttack != null && CurrentAttack.hyperArmor;
 
@@ -63,6 +79,7 @@ namespace VelkhanaSlice.Hunter
         int _chargeFrames;
         int _hitstopFrames;
         int _sheatheTimer;
+        int _sheatheDuration;
         bool _sheatheTarget;
         float _verticalVelocity;
         bool _previousHitConnected;
@@ -80,11 +97,21 @@ namespace VelkhanaSlice.Hunter
         bool _secondaryPressed;
         bool _dodgePressed;
         bool _sheathePressed;
+        bool _runHeld;
 
         void Awake()
         {
             _cc = GetComponent<CharacterController>();
             if (aimCamera == null) aimCamera = Camera.main;
+
+            // Keep an already-generated graybox scene usable after presentation code is added.
+            // Newly rebuilt scenes serialize this component and its references explicitly.
+            if (GetComponent<HunterPresentation>() == null &&
+                transform.Find("Body") != null &&
+                transform.Find("SwordVisual") != null)
+            {
+                gameObject.AddComponent<HunterPresentation>();
+            }
         }
 
         void Update()
@@ -132,6 +159,8 @@ namespace VelkhanaSlice.Hunter
             _aimInput = gp != null ? gp.rightStick.ReadValue() : Vector2.zero;
 
             _primaryHeld = (gp != null && gp.buttonWest.isPressed) || (mouse != null && mouse.leftButton.isPressed);
+            _runHeld = (gp != null && gp.leftStickButton.isPressed)
+                       || (kb != null && (kb.leftShiftKey.isPressed || kb.rightShiftKey.isPressed));
 
             _secondaryPressed |= (gp != null && gp.buttonNorth.wasPressedThisFrame)
                                  || (mouse != null && mouse.rightButton.wasPressedThisFrame);
@@ -180,16 +209,25 @@ namespace VelkhanaSlice.Hunter
                 return;
             }
 
-            if (_sheathePressed && CurrentState == State.Free)
+            if (CurrentState != State.Free) return;
+
+            // Sprinting is a sheathed action. Holding the run key while the weapon is out starts
+            // the existing sheathe transition, then IsRunning becomes true when it completes.
+            if (_runHeld && WeaponDrawn)
             {
-                _sheatheTarget = !WeaponDrawn;
-                _sheatheTimer = WeaponDrawn ? sheatheFrames : drawFrames;
+                BeginWeaponTransition(false);
+                return;
+            }
+
+            if (_sheathePressed)
+            {
+                BeginWeaponTransition(!WeaponDrawn);
             }
         }
 
         void TickFree()
         {
-            Move(WeaponDrawn ? drawnSpeed : sheathedSpeed);
+            Move(IsRunning ? runningSpeed : WeaponDrawn ? drawnSpeed : sheathedSpeed);
             FaceMoveOrAim();
 
             if (_dodgePressed) { EnterRoll(); return; }
@@ -198,6 +236,7 @@ namespace VelkhanaSlice.Hunter
             {
                 // Sheathed, the first swing is a draw slash and it starts already committed.
                 if (!WeaponDrawn) { WeaponDrawn = true; BeginAttack(drawSlash); return; }
+                CancelWeaponTransition();
                 CurrentState = State.Charging;
                 _chargeFrames = 0;
                 return;
@@ -242,7 +281,7 @@ namespace VelkhanaSlice.Hunter
             if (attack == null) { CurrentState = State.Free; return; }
 
             // Attacking always means the weapon is out, so abandon any swap in progress.
-            _sheatheTimer = 0;
+            CancelWeaponTransition();
             WeaponDrawn = true;
 
             CurrentAttack = attack;
@@ -250,6 +289,19 @@ namespace VelkhanaSlice.Hunter
             AttackFrame = 0;
             _bufferedAttack = null;
             _hitThisSwing.Clear();
+        }
+
+        void BeginWeaponTransition(bool drawn)
+        {
+            _sheatheTarget = drawn;
+            _sheatheDuration = drawn ? drawFrames : sheatheFrames;
+            _sheatheTimer = _sheatheDuration;
+        }
+
+        void CancelWeaponTransition()
+        {
+            _sheatheTimer = 0;
+            _sheatheDuration = 0;
         }
 
         void TickAttacking()
