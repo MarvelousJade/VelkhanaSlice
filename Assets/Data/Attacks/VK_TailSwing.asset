@@ -10,15 +10,15 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 31dad5dfd62b7a6429005d66fe5596ea, type: 3}
-  m_Name: VK_IceSpires
+  m_Name: VK_TailSwing
   m_EditorClassIdentifier: VelkhanaSlice::VelkhanaSlice.Combat.AttackDefinition
-  startupFrames: 60
-  activeFrames: 10
-  recoveryFrames: 62
-  trackingCutoffFrame: 24
+  startupFrames: 32
+  activeFrames: 13
+  recoveryFrames: 38
+  trackingCutoffFrame: 19
   cancelWindowStart: -1
-  damage: 34
-  staggerDamage: 24
+  damage: 48
+  staggerDamage: 26
   chargeMultipliers:
   - 1
   - 1.4
@@ -26,8 +26,8 @@ MonoBehaviour:
   - 2.4
   hyperArmor: 0
   incomingDamageReduction: 0
-  hitboxCenter: {x: 0, y: 1, z: 9}
-  hitboxSize: {x: 10, y: 2, z: 10}
+  hitboxCenter: {x: 0, y: 1.1, z: 1.2}
+  hitboxSize: {x: 10, y: 2.2, z: 8}
   forwardMotion:
     serializedVersion: 2
     m_Curve:

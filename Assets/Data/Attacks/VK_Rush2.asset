@@ -10,15 +10,15 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 31dad5dfd62b7a6429005d66fe5596ea, type: 3}
-  m_Name: VK_IceBeam
+  m_Name: VK_Rush2
   m_EditorClassIdentifier: VelkhanaSlice::VelkhanaSlice.Combat.AttackDefinition
-  startupFrames: 46
-  activeFrames: 20
-  recoveryFrames: 50
-  trackingCutoffFrame: 30
+  startupFrames: 28
+  activeFrames: 13
+  recoveryFrames: 38
+  trackingCutoffFrame: 18
   cancelWindowStart: -1
-  damage: 30
-  staggerDamage: 0
+  damage: 58
+  staggerDamage: 30
   chargeMultipliers:
   - 1
   - 1.4
@@ -26,8 +26,8 @@ MonoBehaviour:
   - 2.4
   hyperArmor: 0
   incomingDamageReduction: 0
-  hitboxCenter: {x: 0, y: 1, z: 11}
-  hitboxSize: {x: 2.6, y: 2, z: 18}
+  hitboxCenter: {x: 0, y: 1.2, z: 4}
+  hitboxSize: {x: 3.2, y: 2.5, z: 7}
   forwardMotion:
     serializedVersion: 2
     m_Curve:
@@ -52,6 +52,6 @@ MonoBehaviour:
     m_PreInfinity: 2
     m_PostInfinity: 2
     m_RotationOrder: 4
-  forwardMotionScale: 0
+  forwardMotionScale: 7
   followUps: []
   requiresPreviousHitConnected: 0

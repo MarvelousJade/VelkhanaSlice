@@ -10,15 +10,15 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 31dad5dfd62b7a6429005d66fe5596ea, type: 3}
-  m_Name: VK_BodyCheck
+  m_Name: VK_Rush
   m_EditorClassIdentifier: VelkhanaSlice::VelkhanaSlice.Combat.AttackDefinition
   startupFrames: 34
-  activeFrames: 8
-  recoveryFrames: 40
-  trackingCutoffFrame: 22
+  activeFrames: 16
+  recoveryFrames: 46
+  trackingCutoffFrame: 20
   cancelWindowStart: -1
-  damage: 75
-  staggerDamage: 0
+  damage: 64
+  staggerDamage: 34
   chargeMultipliers:
   - 1
   - 1.4
@@ -26,8 +26,8 @@ MonoBehaviour:
   - 2.4
   hyperArmor: 0
   incomingDamageReduction: 0
-  hitboxCenter: {x: 0, y: 1, z: 4}
-  hitboxSize: {x: 4.5, y: 2, z: 6}
+  hitboxCenter: {x: 0, y: 1.2, z: 4.5}
+  hitboxSize: {x: 3.4, y: 2.6, z: 8}
   forwardMotion:
     serializedVersion: 2
     m_Curve:
@@ -52,6 +52,6 @@ MonoBehaviour:
     m_PreInfinity: 2
     m_PostInfinity: 2
     m_RotationOrder: 4
-  forwardMotionScale: 4.5
+  forwardMotionScale: 9.5
   followUps: []
   requiresPreviousHitConnected: 0

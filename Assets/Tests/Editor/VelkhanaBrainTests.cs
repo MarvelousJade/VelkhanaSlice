@@ -56,5 +56,67 @@ namespace VelkhanaSlice.Tests
                 VelkhanaPresentation.StageGlowStrength(ArmorStage.Ultimate),
                 VelkhanaPresentation.StageGlowStrength(ArmorStage.IceArmorStage2));
         }
+
+        [Test]
+        public void DetailedConditionsRespectDecodedDistanceFacingVerticalAndModeGates()
+        {
+            var option = new MonsterAttackOption
+            {
+                useEm124Conditions = true,
+                minimumDistance = 6f,
+                maximumDistance = 16f,
+                maximumVerticalDistance = 7.5f,
+                minimumFacingAngle = 0f,
+                maximumFacingAngle = 30f,
+                modes = VelkhanaCombatModeMask.Mode2,
+                airRequirement = VelkhanaAirRequirement.Grounded,
+            };
+
+            Assert.IsTrue(VelkhanaBrain.DetailedConditionsMatch(
+                option, 12f, 2f, 20f, VelkhanaCombatMode.Mode2, false));
+            Assert.IsFalse(VelkhanaBrain.DetailedConditionsMatch(
+                option, 17f, 2f, 20f, VelkhanaCombatMode.Mode2, false), "distance gate");
+            Assert.IsFalse(VelkhanaBrain.DetailedConditionsMatch(
+                option, 12f, 8f, 20f, VelkhanaCombatMode.Mode2, false), "vertical gate");
+            Assert.IsFalse(VelkhanaBrain.DetailedConditionsMatch(
+                option, 12f, 2f, 45f, VelkhanaCombatMode.Mode2, false), "facing gate");
+            Assert.IsFalse(VelkhanaBrain.DetailedConditionsMatch(
+                option, 12f, 2f, 20f, VelkhanaCombatMode.Mode1, false), "mode gate");
+            Assert.IsFalse(VelkhanaBrain.DetailedConditionsMatch(
+                option, 12f, 2f, 20f, VelkhanaCombatMode.Mode2, true), "air gate");
+        }
+
+        [Test]
+        public void Function101BucketsRemainExplicitAndFollowIcePresentationStages()
+        {
+            Assert.AreEqual(
+                VelkhanaCombatMode.Mode0,
+                VelkhanaBrain.ModeForStage(ArmorStage.Neutral));
+            Assert.AreEqual(
+                VelkhanaCombatMode.Mode1,
+                VelkhanaBrain.ModeForStage(ArmorStage.IceArmorStage1));
+            Assert.AreEqual(
+                VelkhanaCombatMode.Mode2,
+                VelkhanaBrain.ModeForStage(ArmorStage.IceArmorStage2));
+            Assert.AreEqual(
+                VelkhanaCombatMode.Mode2,
+                VelkhanaBrain.ModeForStage(ArmorStage.Ultimate));
+        }
+
+        [Test]
+        public void ExactEm124OptionUsesItsOwnDistanceTierCentre()
+        {
+            var option = new MonsterAttackOption
+            {
+                useEm124Conditions = true,
+                minimumDistance = 3.5f,
+                maximumDistance = 13f,
+            };
+
+            Assert.AreEqual(
+                8.725f,
+                VelkhanaBrain.DesiredDistanceForOption(option, 8.5f, 17f),
+                0.001f);
+        }
     }
 }

@@ -22,9 +22,8 @@ namespace VelkhanaSlice.Monster
     }
 
     /// <summary>
-    /// High-level states exposed to presentation, HUD and tests. The original EM124 data divides
-    /// decisions and actions across a THKLST project; this compact state set is our readable Unity
-    /// boundary for that same decide/reposition/commit/recover loop.
+    /// Readable high-level states around EM124's THK action tables. Multi-step attacks remain
+    /// individual AttackDefinitions so every interrupt boundary is visible in the HUD and tests.
     /// </summary>
     public enum VelkhanaState
     {
@@ -32,36 +31,121 @@ namespace VelkhanaSlice.Monster
         Reposition,
         Attacking,
         Recovery,
+        RageTransition,
+        Takeoff,
+        Landing,
     }
 
-    /// <summary>One attack Velkhana can pick, with the context that makes it legal.</summary>
+    public enum VelkhanaContext
+    {
+        CombatEntry,
+        GroundCombat,
+        AerialCombat,
+        RageTransition,
+        CriticalHealth,
+    }
+
+    /// <summary>
+    /// EM124 function#101 selects three table buckets. Its real engine meaning is unresolved, so
+    /// the demo keeps the honest Mode0/1/2 names while mapping the buckets to its visible ice stages.
+    /// </summary>
+    public enum VelkhanaCombatMode
+    {
+        Mode0,
+        Mode1,
+        Mode2,
+    }
+
+    [Flags]
+    public enum VelkhanaCombatModeMask
+    {
+        None = 0,
+        Mode0 = 1 << 0,
+        Mode1 = 1 << 1,
+        Mode2 = 1 << 2,
+        All = Mode0 | Mode1 | Mode2,
+    }
+
+    public enum VelkhanaAirRequirement
+    {
+        Grounded,
+        Airborne,
+        Either,
+    }
+
+    /// <summary>One weighted THK-style action or action sequence.</summary>
     [Serializable]
     public class MonsterAttackOption
     {
         public AttackDefinition attack;
         public RangeBand band = RangeBand.Close;
 
-        [Tooltip("Lowest armour stage this attack is available in.")]
+        [Tooltip("Lowest armour stage this action is available in.")]
         public ArmorStage minimumStage = ArmorStage.Neutral;
 
-        [Tooltip("Selection weight before context modifiers.")]
+        [Tooltip("Selection weight before mode, rage, health and history modifiers.")]
         public float weight = 1f;
 
         [Tooltip("Additional weight used by EM124's distinct enraged selection branch.")]
         [Min(0f)] public float enragedWeightMultiplier = 1f;
 
-        [Tooltip("Frames before this attack may be chosen again.")]
+        [Tooltip("Additional weight in the critical-health context.")]
+        [Min(0f)] public float criticalWeightMultiplier = 1f;
+
+        [Tooltip("Frames before this action may be chosen again.")]
         public int cooldownFrames = 180;
 
-        [Tooltip("Only usable when the hunter is roughly in front of Velkhana.")]
+        [Tooltip("Legacy broad-band option: only usable when the hunter is roughly in front.")]
         public bool requiresHunterInFront;
+
+        [Header("Decoded EM124 context")]
+        [Tooltip("Use exact distance/facing/mode conditions instead of the legacy three bands.")]
+        public bool useEm124Conditions;
+
+        [Tooltip("Decoded Global node that inspired this semantic action, for HUD/debug tracing.")]
+        public string thkNode;
+
+        [Min(0f)] public float minimumDistance;
+        [Min(0f)] public float maximumDistance = 28f;
+        [Min(0f)] public float maximumVerticalDistance = 7.5f;
+
+        [Tooltip("Minimum absolute angle from Velkhana's forward direction.")]
+        [Range(0f, 180f)] public float minimumFacingAngle;
+
+        [Tooltip("Maximum absolute angle from Velkhana's forward direction.")]
+        [Range(0f, 180f)] public float maximumFacingAngle = 180f;
+
+        public VelkhanaCombatModeMask modes = VelkhanaCombatModeMask.All;
+        public VelkhanaAirRequirement airRequirement = VelkhanaAirRequirement.Grounded;
+        public bool calmOnly;
+        public bool enragedOnly;
+
+        [Tooltip("Per-function#101-bucket weight multipliers.")]
+        [Min(0f)] public float mode0WeightMultiplier = 1f;
+        [Min(0f)] public float mode1WeightMultiplier = 1f;
+        [Min(0f)] public float mode2WeightMultiplier = 1f;
+
+        [Header("THK-style sequence")]
+        [Tooltip("Steps used after the first action while calm.")]
+        public AttackDefinition[] calmFollowUps = Array.Empty<AttackDefinition>();
+
+        [Tooltip("Steps used after the first action while enraged.")]
+        public AttackDefinition[] enragedFollowUps = Array.Empty<AttackDefinition>();
+
+        [Tooltip("Enter the aerial context before playing this sequence.")]
+        public bool takeOffBeforeSequence;
+
+        [Tooltip("Return to the ground after this sequence.")]
+        public bool landAfterSequence;
 
         [NonSerialized] public int CooldownRemaining;
     }
 
     /// <summary>
-    /// Velkhana's decision layer. Picks attacks from context and weight, never from player input.
-    /// Runs on the same fixed 60 Hz step as the hunter.
+    /// A deterministic, frame-stepped interpretation of the decoded EM124 combat shape:
+    /// context gate, interrupt pass, function#101 mode bucket, weighted selector, and semantic
+    /// action sequences. It intentionally does not claim that unresolved engine predicates have
+    /// been reverse engineered.
     /// </summary>
     public class VelkhanaBrain : MonoBehaviour, IAttacker
     {
@@ -71,85 +155,181 @@ namespace VelkhanaSlice.Monster
         [Tooltip("Layers searched for the hunter when an attack's hitbox is active.")]
         public LayerMask hunterLayers = ~0;
 
-        [Header("Range bands (metres)")]
-        [Tooltip("EM124 Combat_Enter reference threshold: distance_2d <= 850 game units.")]
+        [Header("Combat entry (metres)")]
+        [Tooltip("EM124 Combat_Enter: distance_2d <= 850 game units.")]
         public float closeRange = 8.5f;
-        [Tooltip("EM124 Combat_Enter reference threshold: distance_3d <= 1700 game units.")]
+
+        [Tooltip("EM124 Combat_Enter: otherwise distance_3d <= 1700 game units.")]
         public float mediumRange = 17f;
 
-        [Header("Pacing (frames @ 60 Hz)")]
-        [Tooltip("Idle frames between attacks. Shrinks in the powered stages.")]
-        public int neutralFrames = 60;
-        [Range(0.1f, 1f)] public float poweredPacingMultiplier = 0.65f;
+        [Tooltip("EM124 Combat_Enter: vertical distance <= 750 game units in the close branch.")]
+        public float combatEntryVerticalRange = 7.5f;
 
-        [Tooltip("How fast Velkhana turns to face the hunter between attacks.")]
+        [Header("Pacing (frames @ 60 Hz)")]
+        public int neutralFrames = 42;
+        [Range(0.1f, 1f)] public float poweredPacingMultiplier = 0.65f;
+        [Range(0.1f, 1f)] public float enragedPacingMultiplier = 0.72f;
+        [Range(0.1f, 1f)] public float criticalPacingMultiplier = 0.78f;
         public float idleTurnDegreesPerSecond = 90f;
 
         [Header("Repositioning (no NavMesh)")]
-        [Tooltip("Ground speed while moving into a range band that has a legal attack.")]
         public float repositionSpeed = 3.2f;
-        [Tooltip("Turn speed while repositioning.")]
+        public float enragedRepositionSpeed = 4.2f;
         public float repositionTurnDegreesPerSecond = 150f;
-        [Tooltip("Distance error small enough to orbit rather than move directly in or out.")]
         public float repositionDistanceTolerance = 1.25f;
-        [Tooltip("Frames between attack checks while repositioning.")]
         [Min(1)] public int repositionDecisionIntervalFrames = 12;
-        [Tooltip("Return to Observe after this many reposition frames, even if no attack became legal.")]
         [Min(1)] public int maxRepositionFrames = 240;
         [Range(0f, 1f)] public float repositionOrbitWeight = 0.55f;
-        [Tooltip("Keeps direct transform locomotion inside the graybox arena.")]
         public Vector3 arenaCenter = Vector3.zero;
         [Min(1f)] public float arenaRadius = 28f;
 
-        [Header("Attacks")]
-        public List<MonsterAttackOption> options = new List<MonsterAttackOption>();
+        [Header("Aerial context (frames @ 60 Hz)")]
+        [Min(1)] public int takeoffFrames = 42;
+        [Min(1)] public int landingFrames = 36;
 
-        [Header("Phase")]
-        public ArmorStage stage = ArmorStage.Neutral;
-        [Tooltip("EM124 Combat_Main has separate enraged and non-enraged weighted branches.")]
+        [Header("Decoded action table")]
+        public List<MonsterAttackOption> options = new List<MonsterAttackOption>();
+        public bool deterministicSelection = true;
+        public int selectionSeed = 124;
+
+        [Header("Rage")]
+        [Tooltip("If enabled, dealt damage fills a rage threshold like Monster Hunter's rage buildup.")]
+        public bool automaticEnrage;
+        [Min(1f)] public float rageDamageThreshold = 380f;
+        [Min(1)] public int rageTransitionFrames = 78;
+        [Min(1)] public int rageDurationFrames = 900;
+        [Min(0)] public int rageCooldownFrames = 360;
         public bool enraged;
-        [Tooltip("Ice armour applied to each armoured part when a powered stage begins.")]
+
+        [Header("Vitality")]
+        [Min(1f)] public float maxHealth = 3000f;
+        [Range(0.05f, 0.9f)] public float criticalHealthFraction = 0.25f;
+
+        [Header("Ice armour cycle")]
+        public ArmorStage stage = ArmorStage.Neutral;
+        public bool automaticPhaseProgression;
+        [Min(1)] public int completedSequencesPerStage = 3;
+        [Min(1)] public int ultimateDurationFrames = 600;
+        [Min(0)] public int armorRebuildLockoutFrames = 360;
         public float armorPerPart = 300f;
-        [Tooltip("Armoured parts that must shatter to drop out of a powered stage early.")]
         public int armorBreaksToInterrupt = 2;
-        public BodyPartHurtbox[] armoredParts = new BodyPartHurtbox[0];
+        public BodyPartHurtbox[] armoredParts = Array.Empty<BodyPartHurtbox>();
 
         [Header("Repetition")]
-        [Tooltip("Weight multiplier applied to the attack used last, so Velkhana does not spam it.")]
         [Range(0f, 1f)] public float repeatPenalty = 0.25f;
+        [Range(0f, 1f)] public float recentHistoryPenalty = 0.65f;
 
         public AttackDefinition CurrentAttack { get; private set; }
         public int AttackFrame { get; private set; }
         public VelkhanaState CurrentState { get; private set; } = VelkhanaState.Observe;
         public int StateFrame { get; private set; }
         public RangeBand DesiredBand { get; private set; } = RangeBand.Medium;
+        public float DesiredDistance { get; private set; } = 12.75f;
+        public VelkhanaContext CurrentContext { get; private set; } = VelkhanaContext.CombatEntry;
+        public VelkhanaCombatMode CombatMode { get; private set; } = VelkhanaCombatMode.Mode0;
+        public bool IsAirborne { get; private set; }
+        public int SequenceStep { get; private set; }
+        public int SequenceLength { get; private set; } = 1;
+        public string CurrentThkNode => _activeOption != null ? _activeOption.thkNode : string.Empty;
+        public float CurrentHealth { get; private set; }
+        public float HealthFraction => maxHealth <= 0f ? 0f : Mathf.Clamp01(CurrentHealth / maxHealth);
+        public float RageBuild => rageDamageThreshold <= 0f
+            ? 0f
+            : Mathf.Clamp01(_rageDamage / rageDamageThreshold);
 
         public event Action<ArmorStage> StageChanged;
         public event Action<VelkhanaState> StateChanged;
+        public event Action<bool> EnrageChanged;
+        public event Action<float, float> HealthChanged;
 
         int _armorBreaks;
+        int _completedSinceStage;
+        int _ultimateFramesRemaining;
+        int _armorLockoutRemaining;
+        int _rageFramesRemaining;
+        int _rageCooldownRemaining;
+        float _rageDamage;
         float _orbitSign = 1f;
+        bool _ragePending;
+        MonsterAttackOption _activeOption;
+        MonsterAttackOption _pendingTakeoffOption;
+        AttackDefinition[] _followUps = Array.Empty<AttackDefinition>();
         MonsterAttackOption _lastUsed;
+        readonly Queue<MonsterAttackOption> _recentOptions = new Queue<MonsterAttackOption>(3);
         Vector3 _committedAimDirection;
-        // Sized for the widest sweep box. A full buffer silently drops targets, so leave headroom.
+        System.Random _random;
+
         readonly Collider[] _overlapBuffer = new Collider[32];
         readonly HashSet<HunterHealth> _hitThisAttack = new HashSet<HunterHealth>();
+        readonly List<BodyPartHurtbox> _subscribedParts = new List<BodyPartHurtbox>();
+
+        void Awake()
+        {
+            CurrentHealth = Mathf.Max(1f, maxHealth);
+            _random = new System.Random(selectionSeed);
+            DesiredDistance = DesiredDistanceForBand(DesiredBand, closeRange, mediumRange);
+
+            if (enraged)
+            {
+                _rageFramesRemaining = Mathf.Max(1, rageDurationFrames);
+                CurrentContext = VelkhanaContext.RageTransition;
+            }
+        }
+
+        void Start()
+        {
+            // AddComponent invokes OnEnable before builders/tests have assigned serialized arrays.
+            RefreshHurtboxBindings();
+        }
 
         void OnEnable()
         {
-            foreach (var part in armoredParts)
-                if (part != null) part.IceArmorShattered += OnArmorShattered;
+            RefreshHurtboxBindings();
         }
 
         void OnDisable()
         {
-            foreach (var part in armoredParts)
-                if (part != null) part.IceArmorShattered -= OnArmorShattered;
+            UnsubscribeHurtboxes();
+        }
+
+        public void RefreshHurtboxBindings()
+        {
+            UnsubscribeHurtboxes();
+
+            var unique = new HashSet<BodyPartHurtbox>();
+            foreach (BodyPartHurtbox part in GetComponentsInChildren<BodyPartHurtbox>(true))
+                if (part != null) unique.Add(part);
+
+            if (armoredParts != null)
+                foreach (BodyPartHurtbox part in armoredParts)
+                    if (part != null) unique.Add(part);
+
+            foreach (BodyPartHurtbox part in unique)
+            {
+                part.Damaged += OnPartDamaged;
+                part.IceArmorShattered += OnArmorShattered;
+                _subscribedParts.Add(part);
+            }
+        }
+
+        void UnsubscribeHurtboxes()
+        {
+            for (int i = 0; i < _subscribedParts.Count; i++)
+            {
+                BodyPartHurtbox part = _subscribedParts[i];
+                if (part == null) continue;
+                part.Damaged -= OnPartDamaged;
+                part.IceArmorShattered -= OnArmorShattered;
+            }
+
+            _subscribedParts.Clear();
         }
 
         void FixedUpdate()
         {
             TickCooldowns();
+            TickRageAndPhase();
+            UpdateContext();
 
             switch (CurrentState)
             {
@@ -160,6 +340,15 @@ namespace VelkhanaSlice.Monster
                 case VelkhanaState.Reposition:
                     TickReposition();
                     break;
+                case VelkhanaState.RageTransition:
+                    TickRageTransition();
+                    break;
+                case VelkhanaState.Takeoff:
+                    TickTakeoff();
+                    break;
+                case VelkhanaState.Landing:
+                    TickLanding();
+                    break;
                 default:
                     TickObserve();
                     break;
@@ -168,23 +357,28 @@ namespace VelkhanaSlice.Monster
 
         void TickObserve()
         {
+            if (TryEnterPendingRage()) return;
+
             TurnTowardHunter(idleTurnDegreesPerSecond);
             StateFrame++;
 
             int pacing = stage == ArmorStage.Neutral
                 ? neutralFrames
                 : Mathf.RoundToInt(neutralFrames * poweredPacingMultiplier);
+            if (enraged) pacing = Mathf.RoundToInt(pacing * enragedPacingMultiplier);
+            if (CurrentContext == VelkhanaContext.CriticalHealth)
+                pacing = Mathf.RoundToInt(pacing * criticalPacingMultiplier);
 
             if (StateFrame < Mathf.Max(1, pacing)) return;
 
             MonsterAttackOption picked = Choose();
             if (picked != null)
             {
-                StartAttack(picked);
+                StartOption(picked);
                 return;
             }
 
-            DesiredBand = ChooseRepositionBand();
+            ChooseRepositionTarget();
             Vector3 toHunter = DirectionToHunter();
             _orbitSign = Vector3.Dot(transform.right, toHunter) >= 0f ? -1f : 1f;
             EnterState(VelkhanaState.Reposition);
@@ -192,6 +386,7 @@ namespace VelkhanaSlice.Monster
 
         void TickReposition()
         {
+            if (TryEnterPendingRage()) return;
             if (hunter == null)
             {
                 EnterState(VelkhanaState.Observe);
@@ -206,64 +401,225 @@ namespace VelkhanaSlice.Monster
                 MonsterAttackOption picked = Choose();
                 if (picked != null)
                 {
-                    StartAttack(picked);
+                    StartOption(picked);
                     return;
                 }
 
-                DesiredBand = ChooseRepositionBand();
+                ChooseRepositionTarget();
             }
 
-            float desiredDistance = DesiredDistanceForBand(DesiredBand, closeRange, mediumRange);
             Vector3 moveDirection = CalculateRepositionDirection(
                 transform.position,
                 transform.forward,
                 hunter.position,
-                desiredDistance,
+                DesiredDistance,
                 repositionDistanceTolerance,
                 _orbitSign,
                 repositionOrbitWeight);
 
+            float speed = enraged ? enragedRepositionSpeed : repositionSpeed;
             Vector3 next = transform.position +
-                           moveDirection * (Mathf.Max(0f, repositionSpeed) * Time.fixedDeltaTime);
-            next = ClampToArena(next);
-            transform.position = next;
+                           moveDirection * (Mathf.Max(0f, speed) * Time.fixedDeltaTime);
+            transform.position = ClampToArena(next);
 
             if (StateFrame >= Mathf.Max(1, maxRepositionFrames))
                 EnterState(VelkhanaState.Observe);
         }
 
-        void StartAttack(MonsterAttackOption picked)
+        void StartOption(MonsterAttackOption picked)
         {
+            _activeOption = picked;
             _lastUsed = picked;
-            picked.CooldownRemaining = picked.cooldownFrames;
-            CurrentAttack = picked.attack;
+            picked.CooldownRemaining = Mathf.Max(0, picked.cooldownFrames);
+            _followUps = enraged ? picked.enragedFollowUps : picked.calmFollowUps;
+            _followUps ??= Array.Empty<AttackDefinition>();
+            SequenceStep = 0;
+            SequenceLength = 1 + _followUps.Length;
+            Remember(picked);
+
+            if (picked.takeOffBeforeSequence && !IsAirborne)
+            {
+                _pendingTakeoffOption = picked;
+                EnterState(VelkhanaState.Takeoff);
+                return;
+            }
+
+            StartAttackStep(picked.attack);
+        }
+
+        void StartAttackStep(AttackDefinition attack)
+        {
+            if (attack == null)
+            {
+                FinishSequence();
+                return;
+            }
+
+            CurrentAttack = attack;
             AttackFrame = 0;
             _committedAimDirection = DirectionToHunter();
             _hitThisAttack.Clear();
             EnterState(VelkhanaState.Attacking);
         }
 
-        /// <summary>
-        /// Applies the active hitbox to the hunter, once per attack. The hunter side decides what
-        /// the hit is worth, since roll invulnerability and hyper armour live there.
-        /// </summary>
+        void TickTakeoff()
+        {
+            TurnTowardHunter(repositionTurnDegreesPerSecond);
+            if (++StateFrame < Mathf.Max(1, takeoffFrames)) return;
+
+            IsAirborne = true;
+            MonsterAttackOption option = _pendingTakeoffOption;
+            _pendingTakeoffOption = null;
+            if (option == null)
+            {
+                BeginLanding();
+                return;
+            }
+
+            StartAttackStep(option.attack);
+        }
+
+        void TickLanding()
+        {
+            TurnTowardHunter(idleTurnDegreesPerSecond);
+            if (++StateFrame < Mathf.Max(1, landingFrames)) return;
+
+            IsAirborne = false;
+            ClearSequence();
+            if (!TryEnterPendingRage()) EnterState(VelkhanaState.Observe);
+        }
+
+        void BeginLanding()
+        {
+            CurrentAttack = null;
+            AttackFrame = 0;
+            EnterState(VelkhanaState.Landing);
+        }
+
+        void TickRageTransition()
+        {
+            TurnTowardHunter(idleTurnDegreesPerSecond * 0.35f);
+            if (++StateFrame < Mathf.Max(1, rageTransitionFrames)) return;
+
+            _ragePending = false;
+            CurrentContext = IsAirborne
+                ? VelkhanaContext.AerialCombat
+                : VelkhanaContext.GroundCombat;
+
+            if (IsAirborne) BeginLanding();
+            else EnterState(VelkhanaState.Observe);
+        }
+
+        bool TryEnterPendingRage()
+        {
+            if (!_ragePending || CurrentState == VelkhanaState.RageTransition) return false;
+            EnterState(VelkhanaState.RageTransition);
+            return true;
+        }
+
+        void TickAttack()
+        {
+            if (CurrentAttack == null)
+            {
+                FinishSequence();
+                return;
+            }
+
+            int recoveryStart = CurrentAttack.startupFrames + CurrentAttack.activeFrames;
+            if (AttackFrame >= recoveryStart && CurrentState != VelkhanaState.Recovery)
+                EnterState(VelkhanaState.Recovery);
+
+            StateFrame++;
+
+            if (CurrentAttack.CanTrack(AttackFrame))
+                _committedAimDirection = DirectionToHunter();
+
+            float step = CurrentAttack.ForwardStep(AttackFrame);
+            if (!Mathf.Approximately(step, 0f))
+                transform.position = ClampToArena(
+                    transform.position + _committedAimDirection * step);
+
+            if (_committedAimDirection.sqrMagnitude > 0.001f && CurrentAttack.CanTrack(AttackFrame))
+                transform.rotation = Quaternion.LookRotation(_committedAimDirection, Vector3.up);
+
+            if (CurrentAttack.IsHitActive(AttackFrame)) CheckHunterHit(CurrentAttack);
+            if (++AttackFrame < CurrentAttack.TotalFrames) return;
+
+            int nextIndex = SequenceStep;
+            if (nextIndex < _followUps.Length && CanContinueSequence())
+            {
+                SequenceStep++;
+                StartAttackStep(_followUps[nextIndex]);
+                return;
+            }
+
+            FinishSequence();
+        }
+
+        bool CanContinueSequence()
+        {
+            if (hunter == null || _activeOption == null) return false;
+
+            // Global.node_328 inserts an interrupt check between aerial/ground combo steps.
+            // We expose the equivalent target/range/arena validity check here.
+            float distance = Distance2DToHunter();
+            float maximum = _activeOption.maximumDistance > 0f
+                ? _activeOption.maximumDistance + 4f
+                : 32f;
+            if (distance > maximum) return false;
+
+            Vector3 arenaOffset = hunter.position - arenaCenter;
+            arenaOffset.y = 0f;
+            return arenaOffset.sqrMagnitude <= arenaRadius * arenaRadius * 1.35f;
+        }
+
+        void FinishSequence()
+        {
+            bool land = _activeOption != null && _activeOption.landAfterSequence && IsAirborne;
+            CurrentAttack = null;
+            AttackFrame = 0;
+
+            RegisterCompletedSequence();
+
+            if (land)
+            {
+                BeginLanding();
+                return;
+            }
+
+            ClearSequence();
+            if (!TryEnterPendingRage()) EnterState(VelkhanaState.Observe);
+        }
+
+        void ClearSequence()
+        {
+            _activeOption = null;
+            _followUps = Array.Empty<AttackDefinition>();
+            SequenceStep = 0;
+            SequenceLength = 1;
+        }
+
+        void RegisterCompletedSequence()
+        {
+            if (!automaticPhaseProgression || _armorLockoutRemaining > 0) return;
+            if (stage == ArmorStage.Ultimate) return;
+
+            if (++_completedSinceStage < Mathf.Max(1, completedSequencesPerStage)) return;
+            _completedSinceStage = 0;
+            SetStage(stage + 1);
+        }
+
         void CheckHunterHit(AttackDefinition attack)
         {
             int count = AttackHitbox.Overlap(transform, attack, hunterLayers, _overlapBuffer);
-
             for (int i = 0; i < count; i++)
             {
-                var health = _overlapBuffer[i].GetComponentInParent<HunterHealth>();
+                HunterHealth health = _overlapBuffer[i].GetComponentInParent<HunterHealth>();
                 if (health == null || !_hitThisAttack.Add(health)) continue;
                 health.TakeDamage(attack.damage);
             }
         }
 
-        /// <summary>
-        /// Faces the hunter between attacks. Without this a monster whose options all require the
-        /// hunter in front can end up facing away and never choose anything again, which is exactly
-        /// what happens when the player circles behind it.
-        /// </summary>
         void TurnTowardHunter(float degreesPerSecond)
         {
             if (hunter == null) return;
@@ -279,119 +635,216 @@ namespace VelkhanaSlice.Monster
         void TickCooldowns()
         {
             for (int i = 0; i < options.Count; i++)
-                if (options[i].CooldownRemaining > 0) options[i].CooldownRemaining--;
+                if (options[i] != null && options[i].CooldownRemaining > 0)
+                    options[i].CooldownRemaining--;
         }
 
-        void TickAttack()
+        void TickRageAndPhase()
         {
-            if (CurrentAttack == null)
+            if (_rageCooldownRemaining > 0) _rageCooldownRemaining--;
+            if (_armorLockoutRemaining > 0) _armorLockoutRemaining--;
+
+            if (enraged && _rageFramesRemaining > 0 && CurrentState != VelkhanaState.RageTransition)
             {
-                AttackFrame = 0;
-                EnterState(VelkhanaState.Observe);
-                return;
+                _rageFramesRemaining--;
+                if (_rageFramesRemaining <= 0) EndEnrage();
             }
 
-            int recoveryStart = CurrentAttack.startupFrames + CurrentAttack.activeFrames;
-            if (AttackFrame >= recoveryStart && CurrentState != VelkhanaState.Recovery)
-                EnterState(VelkhanaState.Recovery);
+            if (stage == ArmorStage.Ultimate && _ultimateFramesRemaining > 0)
+            {
+                _ultimateFramesRemaining--;
+                if (_ultimateFramesRemaining <= 0)
+                {
+                    SetStage(ArmorStage.Neutral);
+                    _armorLockoutRemaining = Mathf.Max(0, armorRebuildLockoutFrames);
+                }
+            }
+        }
 
-            StateFrame++;
+        void UpdateContext()
+        {
+            CombatMode = ModeForStage(stage);
 
-            // Tracking stops at the definition's cutoff frame. After that the attack is committed
-            // and cannot be steered, which is what makes positioning beat it.
-            if (CurrentAttack.CanTrack(AttackFrame)) _committedAimDirection = DirectionToHunter();
+            if (CurrentState == VelkhanaState.RageTransition)
+                CurrentContext = VelkhanaContext.RageTransition;
+            else if (IsAirborne || CurrentState == VelkhanaState.Takeoff ||
+                     CurrentState == VelkhanaState.Landing)
+                CurrentContext = VelkhanaContext.AerialCombat;
+            else if (HealthFraction <= criticalHealthFraction)
+                CurrentContext = VelkhanaContext.CriticalHealth;
+            else if (hunter == null || !InsideCombatEntry())
+                CurrentContext = VelkhanaContext.CombatEntry;
+            else
+                CurrentContext = VelkhanaContext.GroundCombat;
+        }
 
-            float step = CurrentAttack.ForwardStep(AttackFrame);
-            if (!Mathf.Approximately(step, 0f))
-                transform.position += _committedAimDirection * step;
-
-            if (_committedAimDirection.sqrMagnitude > 0.001f && CurrentAttack.CanTrack(AttackFrame))
-                transform.rotation = Quaternion.LookRotation(_committedAimDirection, Vector3.up);
-
-            if (CurrentAttack.IsHitActive(AttackFrame)) CheckHunterHit(CurrentAttack);
-
-            // Velkhana never cancels out of an attack; it always plays to its recovery.
-            if (++AttackFrame < CurrentAttack.TotalFrames) return;
-
-            CurrentAttack = null;
-            AttackFrame = 0;
-            EnterState(VelkhanaState.Observe);
+        bool InsideCombatEntry()
+        {
+            if (hunter == null) return false;
+            float distance2D = Distance2DToHunter();
+            float vertical = Mathf.Abs(hunter.position.y - transform.position.y);
+            if (distance2D <= closeRange && vertical <= combatEntryVerticalRange) return true;
+            return Vector3.Distance(transform.position, hunter.position) <= mediumRange;
         }
 
         MonsterAttackOption Choose()
         {
             if (hunter == null || options.Count == 0) return null;
 
+            float distance = Distance2DToHunter();
+            float vertical = Mathf.Abs(hunter.position.y - transform.position.y);
+            float facingAngle = AbsoluteFacingAngleToHunter();
             RangeBand band = BandToHunter();
-            bool inFront = Vector3.Dot(transform.forward, DirectionToHunter()) > 0.35f;
+            bool inFront = facingAngle <= 69.5f;
 
             float total = 0f;
             var weights = new float[options.Count];
-
             for (int i = 0; i < options.Count; i++)
             {
-                var option = options[i];
-                if (option.attack == null) continue;
+                MonsterAttackOption option = options[i];
+                if (option == null || option.attack == null) continue;
                 if (option.CooldownRemaining > 0) continue;
-                if (option.band != band) continue;
                 if (option.minimumStage > stage) continue;
-                if (option.requiresHunterInFront && !inFront) continue;
+                if (option.calmOnly && enraged) continue;
+                if (option.enragedOnly && !enraged) continue;
 
-                float w = Mathf.Max(0f, option.weight);
-                if (enraged) w *= Mathf.Max(0f, option.enragedWeightMultiplier);
-                if (option == _lastUsed) w *= repeatPenalty;
-                weights[i] = w;
-                total += w;
+                if (option.useEm124Conditions)
+                {
+                    if (!DetailedConditionsMatch(
+                            option, distance, vertical, facingAngle, CombatMode, IsAirborne))
+                        continue;
+                }
+                else
+                {
+                    if (option.band != band) continue;
+                    if (option.requiresHunterInFront && !inFront) continue;
+                }
+
+                float weight = Mathf.Max(0f, option.weight);
+                weight *= ModeWeight(option, CombatMode);
+                if (enraged) weight *= Mathf.Max(0f, option.enragedWeightMultiplier);
+                if (CurrentContext == VelkhanaContext.CriticalHealth)
+                    weight *= Mathf.Max(0f, option.criticalWeightMultiplier);
+                if (option == _lastUsed) weight *= repeatPenalty;
+                else if (_recentOptions.Contains(option)) weight *= recentHistoryPenalty;
+
+                weights[i] = weight;
+                total += weight;
             }
 
             if (total <= 0f) return null;
 
-            float roll = UnityEngine.Random.value * total;
+            float roll = NextSelectionValue() * total;
             for (int i = 0; i < options.Count; i++)
             {
                 roll -= weights[i];
                 if (roll <= 0f && weights[i] > 0f) return options[i];
             }
+
             return null;
         }
 
-        RangeBand BandToHunter()
+        float NextSelectionValue()
         {
-            float distance = Vector3.Distance(transform.position, hunter.position);
-            if (distance <= closeRange) return RangeBand.Close;
-            return distance <= mediumRange ? RangeBand.Medium : RangeBand.Far;
+            if (!deterministicSelection) return UnityEngine.Random.value;
+            _random ??= new System.Random(selectionSeed);
+            return (float)_random.NextDouble();
         }
 
-        RangeBand ChooseRepositionBand()
+        void Remember(MonsterAttackOption option)
         {
-            if (hunter == null || options.Count == 0) return RangeBand.Medium;
+            if (option == null) return;
+            _recentOptions.Enqueue(option);
+            while (_recentOptions.Count > 3) _recentOptions.Dequeue();
+        }
 
-            float currentDistance = Vector3.Distance(transform.position, hunter.position);
-            RangeBand best = BandToHunter();
-            float bestError = float.PositiveInfinity;
+        void ChooseRepositionTarget()
+        {
+            if (hunter == null || options.Count == 0)
+            {
+                DesiredBand = RangeBand.Medium;
+                DesiredDistance = DesiredDistanceForBand(
+                    DesiredBand, closeRange, mediumRange);
+                return;
+            }
 
-            // Prefer an off-cooldown attack, but still move toward a useful band while all legal
-            // attacks cool down. That prevents the monster from freezing between THK-like choices.
+            float currentDistance = Distance2DToHunter();
+            float facing = AbsoluteFacingAngleToHunter();
+            float bestScore = float.PositiveInfinity;
+            MonsterAttackOption best = null;
+
             for (int pass = 0; pass < 2; pass++)
             {
                 for (int i = 0; i < options.Count; i++)
                 {
                     MonsterAttackOption option = options[i];
-                    if (option.attack == null || option.minimumStage > stage) continue;
+                    if (option == null || option.attack == null || option.minimumStage > stage)
+                        continue;
+                    if (option.calmOnly && enraged) continue;
+                    if (option.enragedOnly && !enraged) continue;
+                    if (option.airRequirement == VelkhanaAirRequirement.Airborne &&
+                        !option.takeOffBeforeSequence)
+                        continue;
                     if (pass == 0 && option.CooldownRemaining > 0) continue;
 
-                    float desired = DesiredDistanceForBand(option.band, closeRange, mediumRange);
-                    float error = Mathf.Abs(currentDistance - desired);
-                    if (error >= bestError) continue;
+                    float desired = DesiredDistanceForOption(
+                        option, closeRange, mediumRange);
+                    float distanceError = Mathf.Abs(currentDistance - desired);
+                    float angleError = AngleErrorForOption(option, facing) * 0.025f;
+                    float score = distanceError + angleError;
+                    if (score >= bestScore) continue;
 
-                    bestError = error;
-                    best = option.band;
+                    bestScore = score;
+                    best = option;
                 }
 
-                if (!float.IsPositiveInfinity(bestError)) break;
+                if (best != null) break;
             }
 
-            return best;
+            if (best == null)
+            {
+                DesiredBand = BandToHunter();
+                DesiredDistance = DesiredDistanceForBand(
+                    DesiredBand, closeRange, mediumRange);
+                return;
+            }
+
+            DesiredBand = best.band;
+            DesiredDistance = DesiredDistanceForOption(
+                best, closeRange, mediumRange);
+        }
+
+        static float AngleErrorForOption(MonsterAttackOption option, float angle)
+        {
+            if (!option.useEm124Conditions) return option.requiresHunterInFront
+                ? Mathf.Max(0f, angle - 69.5f)
+                : 0f;
+
+            if (angle < option.minimumFacingAngle)
+                return option.minimumFacingAngle - angle;
+            if (angle > option.maximumFacingAngle)
+                return angle - option.maximumFacingAngle;
+            return 0f;
+        }
+
+        RangeBand BandToHunter()
+        {
+            float distance = Distance2DToHunter();
+            if (distance <= closeRange) return RangeBand.Close;
+            return distance <= mediumRange ? RangeBand.Medium : RangeBand.Far;
+        }
+
+        float Distance2DToHunter()
+        {
+            if (hunter == null) return float.PositiveInfinity;
+            Vector3 offset = hunter.position - transform.position;
+            offset.y = 0f;
+            return offset.magnitude;
+        }
+
+        float AbsoluteFacingAngleToHunter()
+        {
+            return AbsoluteFacingAngle(transform.forward, DirectionToHunter());
         }
 
         Vector3 ClampToArena(Vector3 position)
@@ -424,7 +877,179 @@ namespace VelkhanaSlice.Monster
             return flat.sqrMagnitude > 0.001f ? flat.normalized : transform.forward;
         }
 
-        /// <summary>Centre point used by direct locomotion for each attack range band.</summary>
+        void OnPartDamaged(BodyPartHurtbox part, float damage)
+        {
+            ApplyBossDamage(damage);
+        }
+
+        public void ApplyBossDamage(float damage)
+        {
+            if (damage <= 0f || CurrentHealth <= 0f) return;
+
+            CurrentHealth = Mathf.Max(0f, CurrentHealth - damage);
+            HealthChanged?.Invoke(CurrentHealth, maxHealth);
+
+            if (!automaticEnrage || enraged || _rageCooldownRemaining > 0) return;
+            _rageDamage += damage;
+            if (_rageDamage >= Mathf.Max(1f, rageDamageThreshold))
+                BeginEnrage();
+        }
+
+        public void ResetVitality()
+        {
+            CurrentHealth = Mathf.Max(1f, maxHealth);
+            _rageDamage = 0f;
+            HealthChanged?.Invoke(CurrentHealth, maxHealth);
+        }
+
+        public void BeginEnrage()
+        {
+            if (enraged) return;
+
+            enraged = true;
+            _rageDamage = 0f;
+            _rageFramesRemaining = Mathf.Max(1, rageDurationFrames);
+            _ragePending = true;
+            CurrentContext = VelkhanaContext.RageTransition;
+            EnrageChanged?.Invoke(true);
+
+            if (CurrentState == VelkhanaState.Observe ||
+                CurrentState == VelkhanaState.Reposition)
+                TryEnterPendingRage();
+        }
+
+        void EndEnrage()
+        {
+            if (!enraged) return;
+            enraged = false;
+            _rageFramesRemaining = 0;
+            _rageDamage = 0f;
+            _rageCooldownRemaining = Mathf.Max(0, rageCooldownFrames);
+            EnrageChanged?.Invoke(false);
+        }
+
+        public void AdvanceStage()
+        {
+            SetStage(stage == ArmorStage.Ultimate ? ArmorStage.Neutral : stage + 1);
+        }
+
+        void SetStage(ArmorStage next)
+        {
+            stage = next;
+            CombatMode = ModeForStage(stage);
+            _armorBreaks = 0;
+            _completedSinceStage = 0;
+            _ultimateFramesRemaining = stage == ArmorStage.Ultimate
+                ? Mathf.Max(1, ultimateDurationFrames)
+                : 0;
+
+            float armor = stage == ArmorStage.IceArmorStage1 ||
+                          stage == ArmorStage.IceArmorStage2
+                ? armorPerPart * (int)stage
+                : 0f;
+
+            if (armoredParts != null)
+                foreach (BodyPartHurtbox part in armoredParts)
+                    if (part != null) part.RestoreIceArmor(armor);
+
+            StageChanged?.Invoke(stage);
+        }
+
+        void OnArmorShattered(BodyPartHurtbox part)
+        {
+            if (stage == ArmorStage.Neutral) return;
+            if (++_armorBreaks < armorBreaksToInterrupt) return;
+
+            SetStage(ArmorStage.Neutral);
+            _armorLockoutRemaining = Mathf.Max(0, armorRebuildLockoutFrames);
+        }
+
+        public static VelkhanaCombatMode ModeForStage(ArmorStage armorStage)
+        {
+            switch (armorStage)
+            {
+                case ArmorStage.IceArmorStage1:
+                    return VelkhanaCombatMode.Mode1;
+                case ArmorStage.IceArmorStage2:
+                case ArmorStage.Ultimate:
+                    return VelkhanaCombatMode.Mode2;
+                default:
+                    return VelkhanaCombatMode.Mode0;
+            }
+        }
+
+        public static float AbsoluteFacingAngle(Vector3 forward, Vector3 toTarget)
+        {
+            forward.y = 0f;
+            toTarget.y = 0f;
+            if (forward.sqrMagnitude < 0.001f || toTarget.sqrMagnitude < 0.001f)
+                return 0f;
+            return Mathf.Abs(Vector3.SignedAngle(
+                forward.normalized, toTarget.normalized, Vector3.up));
+        }
+
+        public static bool DetailedConditionsMatch(
+            MonsterAttackOption option,
+            float distance2D,
+            float verticalDistance,
+            float absoluteFacingAngle,
+            VelkhanaCombatMode mode,
+            bool airborne)
+        {
+            if (option == null) return false;
+            if (distance2D < Mathf.Max(0f, option.minimumDistance)) return false;
+            if (option.maximumDistance > 0f && distance2D > option.maximumDistance) return false;
+            if (option.maximumVerticalDistance > 0f &&
+                verticalDistance > option.maximumVerticalDistance) return false;
+
+            float angle = Mathf.Clamp(absoluteFacingAngle, 0f, 180f);
+            if (angle < option.minimumFacingAngle || angle > option.maximumFacingAngle)
+                return false;
+
+            VelkhanaCombatModeMask currentMode = (VelkhanaCombatModeMask)(1 << (int)mode);
+            if ((option.modes & currentMode) == 0) return false;
+
+            switch (option.airRequirement)
+            {
+                case VelkhanaAirRequirement.Grounded:
+                    return !airborne;
+                case VelkhanaAirRequirement.Airborne:
+                    return airborne;
+                default:
+                    return true;
+            }
+        }
+
+        public static float ModeWeight(
+            MonsterAttackOption option, VelkhanaCombatMode mode)
+        {
+            if (option == null) return 0f;
+            switch (mode)
+            {
+                case VelkhanaCombatMode.Mode1:
+                    return Mathf.Max(0f, option.mode1WeightMultiplier);
+                case VelkhanaCombatMode.Mode2:
+                    return Mathf.Max(0f, option.mode2WeightMultiplier);
+                default:
+                    return Mathf.Max(0f, option.mode0WeightMultiplier);
+            }
+        }
+
+        public static float DesiredDistanceForOption(
+            MonsterAttackOption option, float close, float medium)
+        {
+            if (option == null || !option.useEm124Conditions)
+                return DesiredDistanceForBand(
+                    option != null ? option.band : RangeBand.Medium, close, medium);
+
+            float minimum = Mathf.Max(0f, option.minimumDistance);
+            float maximum = option.maximumDistance > minimum
+                ? option.maximumDistance
+                : minimum + 2f;
+            return Mathf.Lerp(minimum, maximum, 0.55f);
+        }
+
+        /// <summary>Centre point used by direct locomotion for a legacy attack range band.</summary>
         public static float DesiredDistanceForBand(RangeBand band, float close, float medium)
         {
             close = Mathf.Max(0.5f, close);
@@ -443,7 +1068,7 @@ namespace VelkhanaSlice.Monster
 
         /// <summary>
         /// Pure range-and-angle steering used instead of a NavMesh. Radial movement corrects the
-        /// attack distance; a tangent component keeps motion readable while the body turns.
+        /// action distance; a tangent component keeps the monster moving while it turns.
         /// </summary>
         public static Vector3 CalculateRepositionDirection(
             Vector3 monsterPosition,
@@ -480,35 +1105,6 @@ namespace VelkhanaSlice.Monster
                 : clampedOrbit * Mathf.Lerp(0.2f, 1f, angleNeed);
             Vector3 combined = radial + tangent * tangentStrength;
             return combined.sqrMagnitude > 0.001f ? combined.normalized : Vector3.zero;
-        }
-
-        public void AdvanceStage()
-        {
-            SetStage(stage == ArmorStage.Ultimate ? ArmorStage.Neutral : stage + 1);
-        }
-
-        void SetStage(ArmorStage next)
-        {
-            stage = next;
-            _armorBreaks = 0;
-
-            float armor = stage == ArmorStage.IceArmorStage1 || stage == ArmorStage.IceArmorStage2
-                ? armorPerPart * (int)stage
-                : 0f;
-
-            foreach (var part in armoredParts)
-                if (part != null) part.RestoreIceArmor(armor);
-
-            StageChanged?.Invoke(stage);
-        }
-
-        void OnArmorShattered(BodyPartHurtbox part)
-        {
-            if (stage == ArmorStage.Neutral) return;
-            if (++_armorBreaks < armorBreaksToInterrupt) return;
-
-            // Enough armour broken: the powered stage ends early instead of reaching the ultimate.
-            SetStage(ArmorStage.Neutral);
         }
     }
 }

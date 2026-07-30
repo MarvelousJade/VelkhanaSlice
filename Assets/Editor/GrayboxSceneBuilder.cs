@@ -207,30 +207,81 @@ namespace VelkhanaSlice.EditorTools
 
         class VelkhanaMoves
         {
-            public AttackDefinition TailThrust, BodyCheck, IceBeam, SweepingBreath, IceSpires;
+            public AttackDefinition AdjustBite;
+            public AttackDefinition Rush;
+            public AttackDefinition Rush2;
+            public AttackDefinition BackStepPierce;
+            public AttackDefinition TailThrust;
+            public AttackDefinition TailSwing;
+            public AttackDefinition StraightBreath;
+            public AttackDefinition Sweep90Breath;
+            public AttackDefinition Sweep180Breath;
+            public AttackDefinition IceWave;
+            public AttackDefinition AreaBreath;
+            public AttackDefinition FreezeBreath;
+            public AttackDefinition IceSpires;
+            public AttackDefinition VerticalBreathFly;
+            public AttackDefinition FlyTailStingToGround;
         }
 
         static VelkhanaMoves BuildVelkhanaAttacks()
         {
+            // Names and sequence roles come from em124_55.nack. Frame counts remain original
+            // placeholder timing because LMT motion IDs have not yet been mapped to semantic names.
             // Velkhana's local +Z points at the hunter, so reach is the Z extent of each box.
             return new VelkhanaMoves
             {
+                AdjustBite = Attack("VK_AdjustBite", 22, 6, 26, 16, 34f, 18f,
+                    new Vector3(0f, 1.4f, 3.3f), new Vector3(3.0f, 2.4f, 3.2f),
+                    a => a.forwardMotionScale = 1.2f),
+
+                Rush = Attack("VK_Rush", 34, 16, 46, 20, 64f, 34f,
+                    new Vector3(0f, 1.2f, 4.5f), new Vector3(3.4f, 2.6f, 8.0f),
+                    a => a.forwardMotionScale = 9.5f),
+
+                Rush2 = Attack("VK_Rush2", 28, 13, 38, 18, 58f, 30f,
+                    new Vector3(0f, 1.2f, 4.0f), new Vector3(3.2f, 2.5f, 7.0f),
+                    a => a.forwardMotionScale = 7.0f),
+
+                BackStepPierce = Attack("VK_BackStepPierce", 30, 7, 34, 18, 52f, 28f,
+                    new Vector3(0f, 1.2f, 5.0f), new Vector3(2.2f, 2.2f, 7.0f),
+                    a => a.forwardMotionScale = -2.4f),
+
                 TailThrust = Attack("VK_TailThrust", 28, 6, 34, 20, 22f, 0f,
                     new Vector3(0f, 1f, 5.5f), new Vector3(1.8f, 2f, 6f),
                     a => a.forwardMotionScale = 1.0f),
 
-                BodyCheck = Attack("VK_BodyCheck", 34, 8, 40, 22, 75f, 0f,
-                    new Vector3(0f, 1f, 4f), new Vector3(4.5f, 2f, 6f),
-                    a => a.forwardMotionScale = 4.5f),
+                TailSwing = Attack("VK_TailSwing", 32, 13, 38, 19, 48f, 26f,
+                    new Vector3(0f, 1.1f, 1.2f), new Vector3(10f, 2.2f, 8f)),
 
-                IceBeam = Attack("VK_IceBeam", 46, 20, 50, 30, 30f, 0f,
+                StraightBreath = Attack("VK_StraightBreath", 46, 20, 50, 30, 30f, 18f,
                     new Vector3(0f, 1f, 11f), new Vector3(2.6f, 2f, 18f)),
 
-                SweepingBreath = Attack("VK_SweepingBreath", 52, 26, 56, 34, 26f, 0f,
+                Sweep90Breath = Attack("VK_Sweep90Breath", 52, 26, 56, 34, 28f, 18f,
                     new Vector3(0f, 1f, 8f), new Vector3(14f, 2f, 10f)),
 
-                IceSpires = Attack("VK_IceSpires", 60, 10, 62, 24, 34f, 0f,
+                Sweep180Breath = Attack("VK_Sweep180Breath", 58, 32, 62, 34, 30f, 20f,
+                    new Vector3(0f, 1f, 7.5f), new Vector3(19f, 2f, 12f)),
+
+                IceWave = Attack("VK_IceWave", 44, 18, 48, 28, 36f, 24f,
+                    new Vector3(0f, 1f, 8.5f), new Vector3(6f, 2f, 15f)),
+
+                AreaBreath = Attack("VK_AreaBreath", 68, 14, 58, 26, 42f, 28f,
+                    new Vector3(0f, 1f, 6f), new Vector3(15f, 2f, 15f)),
+
+                FreezeBreath = Attack("VK_FreezeBreath", 62, 18, 64, 28, 44f, 32f,
+                    new Vector3(0f, 1f, 8f), new Vector3(3.2f, 2.2f, 14f)),
+
+                IceSpires = Attack("VK_IceSpires", 60, 10, 62, 24, 34f, 24f,
                     new Vector3(0f, 1f, 9f), new Vector3(10f, 2f, 10f)),
+
+                VerticalBreathFly = Attack("VK_VerticalBreathFly", 40, 18, 28, 20, 38f, 24f,
+                    new Vector3(0f, 0.8f, 3f), new Vector3(8f, 2f, 8f)),
+
+                FlyTailStingToGround = Attack(
+                    "VK_FlyTailStingToGround", 36, 8, 34, 19, 56f, 34f,
+                    new Vector3(0f, 1f, 5f), new Vector3(2.4f, 2.5f, 7f),
+                    a => a.forwardMotionScale = 6.5f),
             };
         }
 
@@ -370,7 +421,9 @@ namespace VelkhanaSlice.EditorTools
             presentation.handSocket = handSocket.transform;
             presentation.backSocket = backSocket.transform;
 
-            hunter.AddComponent<HunterHealth>().maxHealth = 150f;
+            // The technical-demo script intentionally watches several complete monster sequences.
+            // Extra health keeps that observation window alive without weakening individual hits.
+            hunter.AddComponent<HunterHealth>().maxHealth = 500f;
 
             return hunter;
         }
@@ -615,14 +668,114 @@ namespace VelkhanaSlice.EditorTools
             brain.armoredParts = armored.ToArray();
             brain.closeRange = 8.5f;
             brain.mediumRange = 17f;
+            brain.combatEntryVerticalRange = 7.5f;
+            brain.neutralFrames = 30;
+            brain.automaticEnrage = true;
+            brain.rageDamageThreshold = 360f;
+            brain.automaticPhaseProgression = true;
+            brain.completedSequencesPerStage = 3;
+            brain.maxHealth = 3000f;
+            brain.ResetVitality();
             brain.options = new List<MonsterAttackOption>
             {
-                Option(moves.TailThrust,     RangeBand.Close,  ArmorStage.Neutral,        1.0f, 150, false, 0.75f),
-                Option(moves.BodyCheck,      RangeBand.Close,  ArmorStage.Neutral,        0.8f, 240, true,  1.25f),
-                Option(moves.IceBeam,        RangeBand.Medium, ArmorStage.Neutral,        1.0f, 300, true,  1.35f),
-                Option(moves.SweepingBreath, RangeBand.Medium, ArmorStage.IceArmorStage1, 1.2f, 360, false, 1.5f),
-                Option(moves.IceSpires,      RangeBand.Far,    ArmorStage.Neutral,        1.0f, 420, false, 1.4f),
+                // Global.node_004: adjust_bite. Common inside 3-7 m in nodes 093/094.
+                EmOption(
+                    "Global.node_004", moves.AdjustBite, RangeBand.Close,
+                    0f, 7f, 0f, 90f, 20f, 90,
+                    modeWeights: new Vector3(1f, 1f, 1f), enragedMultiplier: 0.8f),
+
+                // Global.node_005/006: long rush and rush_2 approach actions.
+                EmOption(
+                    "Global.node_005", moves.Rush, RangeBand.Far,
+                    16f, 28f, 0f, 90f, 18f, 260,
+                    modeWeights: new Vector3(1f, 0.7f, 0.7f), enragedMultiplier: 1.25f),
+                EmOption(
+                    "Global.node_006", moves.Rush2, RangeBand.Medium,
+                    7f, 16f, 0f, 100f, 24f, 190,
+                    modeWeights: new Vector3(1f, 1.15f, 1f), enragedMultiplier: 1.2f),
+
+                // Global.node_009: back_step_pierce_2 is the rear/flank correction.
+                EmOption(
+                    "Global.node_009", moves.BackStepPierce, RangeBand.Close,
+                    0f, 13f, 75f, 180f, 20f, 170,
+                    modeWeights: new Vector3(1f, 1f, 1.15f), enragedMultiplier: 1.2f),
+
+                // Global.node_020 selects single tail attacks while calm and triple strings enraged.
+                EmOption(
+                    "Global.node_020", moves.TailThrust, RangeBand.Close,
+                    2f, 9f, 0f, 180f, 42f, 150,
+                    modeWeights: new Vector3(1f, 1f, 1f), enragedMultiplier: 1.35f,
+                    calmFollowUps: Array.Empty<AttackDefinition>(),
+                    enragedFollowUps: new[] { moves.TailThrust, moves.TailSwing }),
+
+                // Global.node_013: tail_swing covers hunters who commit behind or beside her.
+                EmOption(
+                    "Global.node_013", moves.TailSwing, RangeBand.Close,
+                    0f, 9f, 55f, 180f, 22f, 170,
+                    modeWeights: new Vector3(1f, 1f, 1.2f), enragedMultiplier: 1.15f),
+
+                // Global.node_035: straight_breath is common across all three mode buckets.
+                EmOption(
+                    "Global.node_035", moves.StraightBreath, RangeBand.Medium,
+                    6f, 28f, 0f, 90f, 36f, 230,
+                    modeWeights: new Vector3(1f, 1f, 1f), enragedMultiplier: 1.25f),
+
+                // Global.node_036/037: function#101 mode-specific 90/180 degree breath sweeps.
+                EmOption(
+                    "Global.node_036", moves.Sweep90Breath, RangeBand.Medium,
+                    6f, 16f, 0f, 135f, 18f, 280,
+                    modeWeights: new Vector3(0f, 1f, 0f), enragedMultiplier: 1.35f,
+                    minimumStage: ArmorStage.IceArmorStage1,
+                    modes: VelkhanaCombatModeMask.Mode1),
+                EmOption(
+                    "Global.node_037", moves.Sweep180Breath, RangeBand.Medium,
+                    6f, 16f, 0f, 180f, 20f, 310,
+                    modeWeights: new Vector3(0f, 0f, 1f), enragedMultiplier: 1.45f,
+                    minimumStage: ArmorStage.IceArmorStage2,
+                    modes: VelkhanaCombatModeMask.Mode2),
+
+                // Global.node_024/023: ice wave and area breath control mid/far space.
+                EmOption(
+                    "Global.node_024", moves.IceWave, RangeBand.Medium,
+                    3.5f, 13f, 0f, 150f, 24f, 250,
+                    modeWeights: new Vector3(0.75f, 1.2f, 1.35f), enragedMultiplier: 1.25f),
+                EmOption(
+                    "Global.node_023", moves.AreaBreath, RangeBand.Far,
+                    8f, 23f, 0f, 120f, 18f, 340,
+                    modeWeights: new Vector3(0.55f, 1.1f, 1.35f), enragedMultiplier: 1.35f,
+                    minimumStage: ArmorStage.IceArmorStage1),
+
+                // Global.node_040: narrow forward freeze branch, favoured in critical/enraged play.
+                EmOption(
+                    "Global.node_040", moves.FreezeBreath, RangeBand.Medium,
+                    3f, 13f, 0f, 30f, 14f, 360,
+                    modeWeights: new Vector3(0.4f, 0.8f, 1.3f), enragedMultiplier: 1.6f,
+                    criticalMultiplier: 1.75f,
+                    minimumStage: ArmorStage.IceArmorStage2),
+
+                // ice_drop/ice control semantic placeholder from the recovered ground inventory.
+                EmOption(
+                    "Global.node_025", moves.IceSpires, RangeBand.Far,
+                    10f, 28f, 0f, 180f, 16f, 380,
+                    modeWeights: new Vector3(0.45f, 1.15f, 1.4f), enragedMultiplier: 1.3f,
+                    minimumStage: ArmorStage.IceArmorStage1),
+
+                // Global.node_063: takeoff, interrupt, two aerial attacks, interrupt, landing attack.
+                EmOption(
+                    "Global.node_063", moves.VerticalBreathFly, RangeBand.Medium,
+                    4f, 17f, 0f, 180f, 10f, 520,
+                    modeWeights: new Vector3(0f, 0.8f, 1.2f), enragedMultiplier: 1.5f,
+                    minimumStage: ArmorStage.IceArmorStage1,
+                    modes: VelkhanaCombatModeMask.Mode1 | VelkhanaCombatModeMask.Mode2,
+                    calmFollowUps: new[] { moves.IceWave, moves.FlyTailStingToGround },
+                    enragedFollowUps: new[]
+                    {
+                        moves.VerticalBreathFly, moves.IceWave, moves.FlyTailStingToGround,
+                    },
+                    takeOff: true,
+                    landAfter: true),
             };
+            brain.RefreshHurtboxBindings();
 
             var presentation = root.AddComponent<VelkhanaPresentation>();
             presentation.visualRoot = visuals.Root;
@@ -641,28 +794,69 @@ namespace VelkhanaSlice.EditorTools
             presentation.breathBeam = visuals.BreathBeam;
             presentation.breathLight = visuals.BreathLight;
             presentation.phaseLight = visuals.PhaseLight;
+            presentation.adjustBite = moves.AdjustBite;
+            presentation.rush = moves.Rush;
+            presentation.rush2 = moves.Rush2;
+            presentation.backStepPierce = moves.BackStepPierce;
             presentation.tailThrust = moves.TailThrust;
-            presentation.bodyCheck = moves.BodyCheck;
-            presentation.iceBeam = moves.IceBeam;
-            presentation.sweepingBreath = moves.SweepingBreath;
+            presentation.tailSwing = moves.TailSwing;
+            presentation.straightBreath = moves.StraightBreath;
+            presentation.sweep90Breath = moves.Sweep90Breath;
+            presentation.sweep180Breath = moves.Sweep180Breath;
+            presentation.iceWave = moves.IceWave;
+            presentation.areaBreath = moves.AreaBreath;
+            presentation.freezeBreath = moves.FreezeBreath;
             presentation.iceSpires = moves.IceSpires;
+            presentation.verticalBreathFly = moves.VerticalBreathFly;
+            presentation.flyTailStingToGround = moves.FlyTailStingToGround;
 
             return root;
         }
 
-        static MonsterAttackOption Option(
-            AttackDefinition attack, RangeBand band, ArmorStage stage,
-            float weight, int cooldown, bool requiresFront, float enragedWeightMultiplier)
+        static MonsterAttackOption EmOption(
+            string thkNode,
+            AttackDefinition attack,
+            RangeBand band,
+            float minimumDistance,
+            float maximumDistance,
+            float minimumFacingAngle,
+            float maximumFacingAngle,
+            float weight,
+            int cooldown,
+            Vector3 modeWeights,
+            float enragedMultiplier,
+            float criticalMultiplier = 1f,
+            ArmorStage minimumStage = ArmorStage.Neutral,
+            VelkhanaCombatModeMask modes = VelkhanaCombatModeMask.All,
+            AttackDefinition[] calmFollowUps = null,
+            AttackDefinition[] enragedFollowUps = null,
+            bool takeOff = false,
+            bool landAfter = false)
         {
             return new MonsterAttackOption
             {
                 attack = attack,
                 band = band,
-                minimumStage = stage,
+                minimumStage = minimumStage,
                 weight = weight,
                 cooldownFrames = cooldown,
-                requiresHunterInFront = requiresFront,
-                enragedWeightMultiplier = enragedWeightMultiplier,
+                enragedWeightMultiplier = enragedMultiplier,
+                criticalWeightMultiplier = criticalMultiplier,
+                useEm124Conditions = true,
+                thkNode = thkNode,
+                minimumDistance = minimumDistance,
+                maximumDistance = maximumDistance,
+                maximumVerticalDistance = 7.5f,
+                minimumFacingAngle = minimumFacingAngle,
+                maximumFacingAngle = maximumFacingAngle,
+                modes = modes,
+                mode0WeightMultiplier = modeWeights.x,
+                mode1WeightMultiplier = modeWeights.y,
+                mode2WeightMultiplier = modeWeights.z,
+                calmFollowUps = calmFollowUps ?? Array.Empty<AttackDefinition>(),
+                enragedFollowUps = enragedFollowUps ?? Array.Empty<AttackDefinition>(),
+                takeOffBeforeSequence = takeOff,
+                landAfterSequence = landAfter,
             };
         }
 

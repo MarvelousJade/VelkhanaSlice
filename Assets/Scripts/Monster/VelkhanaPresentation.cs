@@ -33,17 +33,28 @@ namespace VelkhanaSlice.Monster
         public Light phaseLight;
 
         [Header("Attack mapping")]
+        public AttackDefinition adjustBite;
+        public AttackDefinition rush;
+        public AttackDefinition rush2;
+        public AttackDefinition backStepPierce;
         public AttackDefinition tailThrust;
-        public AttackDefinition bodyCheck;
-        public AttackDefinition iceBeam;
-        public AttackDefinition sweepingBreath;
+        public AttackDefinition tailSwing;
+        public AttackDefinition straightBreath;
+        public AttackDefinition sweep90Breath;
+        public AttackDefinition sweep180Breath;
+        public AttackDefinition iceWave;
+        public AttackDefinition areaBreath;
+        public AttackDefinition freezeBreath;
         public AttackDefinition iceSpires;
+        public AttackDefinition verticalBreathFly;
+        public AttackDefinition flyTailStingToGround;
 
         [Header("Ambient motion")]
         public float breathingAmount = 0.035f;
         public float wingIdleDegrees = 6f;
         public float tailIdleDegrees = 11f;
         public float repositionStrideDegrees = 24f;
+        public float airborneHeight = 3.2f;
 
         VelkhanaBrain _brain;
         Transform[] _poseNodes;
@@ -160,11 +171,14 @@ namespace VelkhanaSlice.Monster
             ResetPose();
             SetBreathEffect(false, 0f);
             ApplyAmbientPose();
+            ApplyContextPose();
 
             if (_brain.CurrentAttack != null)
                 ApplyAttackPose(_brain.CurrentAttack, _brain.AttackFrame);
             else if (_brain.CurrentState == VelkhanaState.Reposition)
                 ApplyRepositionPose();
+            else if (_brain.CurrentState == VelkhanaState.RageTransition)
+                ApplyRagePose();
 
             ApplyPhaseGlow();
         }
@@ -217,22 +231,104 @@ namespace VelkhanaSlice.Monster
             Rotate(wingRPivot, new Vector3(0f, -18f, 12f));
         }
 
+        void ApplyContextPose()
+        {
+            float lift = 0f;
+            if (_brain.CurrentState == VelkhanaState.Takeoff)
+            {
+                float t = Smooth(Mathf.Clamp01(
+                    (float)_brain.StateFrame / Mathf.Max(1, _brain.takeoffFrames)));
+                lift = airborneHeight * t;
+            }
+            else if (_brain.CurrentState == VelkhanaState.Landing)
+            {
+                float t = Smooth(Mathf.Clamp01(
+                    (float)_brain.StateFrame / Mathf.Max(1, _brain.landingFrames)));
+                lift = airborneHeight * (1f - t);
+            }
+            else if (_brain.IsAirborne)
+            {
+                lift = airborneHeight + Mathf.Sin(Time.time * 3.2f) * 0.18f;
+            }
+
+            if (lift <= 0f && _brain.CurrentState != VelkhanaState.Takeoff) return;
+
+            Move(visualRoot, new Vector3(0f, lift, 0f));
+            float flap = Mathf.Sin(Time.time * 8.5f) * 20f;
+            Rotate(wingLPivot, new Vector3(-12f, 0f, 62f + flap));
+            Rotate(wingRPivot, new Vector3(-12f, 0f, -62f - flap));
+            Rotate(frontLegLPivot, new Vector3(-34f, 0f, 0f));
+            Rotate(frontLegRPivot, new Vector3(-34f, 0f, 0f));
+            Rotate(rearLegLPivot, new Vector3(26f, 0f, 0f));
+            Rotate(rearLegRPivot, new Vector3(26f, 0f, 0f));
+        }
+
+        void ApplyRagePose()
+        {
+            float duration = Mathf.Max(1, _brain.rageTransitionFrames);
+            float t = Mathf.Clamp01(_brain.StateFrame / duration);
+            float roar = Mathf.Sin(t * Mathf.PI);
+            float shake = Mathf.Sin(_brain.StateFrame * 0.9f) * roar;
+
+            Move(visualRoot, new Vector3(shake * 0.08f, roar * 0.28f, 0f));
+            Rotate(torsoPivot, new Vector3(-18f * roar, 0f, shake * 3f));
+            Rotate(neckPivot, new Vector3(-38f * roar, shake * 4f, 0f));
+            Rotate(headPivot, new Vector3(22f * roar, 0f, 0f));
+            Rotate(wingLPivot, new Vector3(-16f * roar, 0f, 82f * roar));
+            Rotate(wingRPivot, new Vector3(-16f * roar, 0f, -82f * roar));
+            Rotate(tailRoot, new Vector3(18f * roar, shake * 8f, 0f));
+        }
+
         void ApplyAttackPose(AttackDefinition attack, int frame)
         {
             float startup = StartupProgress(attack, frame);
             float active = ActiveProgress(attack, frame);
             float recovery = RecoveryProgress(attack, frame);
 
-            if (attack == tailThrust)
+            if (attack == adjustBite)
+                PoseBite(startup, active, recovery);
+            else if (attack == rush || attack == rush2)
+                PoseRush(startup, active, recovery, false);
+            else if (attack == backStepPierce)
+                PoseRush(startup, active, recovery, true);
+            else if (attack == tailThrust || attack == flyTailStingToGround)
                 PoseTailThrust(startup, active, recovery);
-            else if (attack == bodyCheck)
-                PoseBodyCheck(startup, active, recovery);
-            else if (attack == iceBeam)
+            else if (attack == tailSwing)
+                PoseTailSwing(startup, active, recovery);
+            else if (attack == straightBreath || attack == freezeBreath)
                 PoseIceBeam(startup, active, recovery, false);
-            else if (attack == sweepingBreath)
+            else if (attack == sweep90Breath || attack == sweep180Breath)
                 PoseIceBeam(startup, active, recovery, true);
-            else if (attack == iceSpires)
+            else if (attack == iceWave || attack == areaBreath || attack == iceSpires)
                 PoseIceSpires(startup, active, recovery);
+            else if (attack == verticalBreathFly)
+                PoseVerticalBreath(startup, active, recovery);
+        }
+
+        void PoseBite(float startup, float active, float recovery)
+        {
+            float windup = Smooth(startup) * (1f - Smooth(recovery));
+            float snap = Mathf.Sin(Mathf.Clamp01(active) * Mathf.PI);
+
+            Rotate(torsoPivot, new Vector3(8f * windup, 0f, 0f));
+            Rotate(neckPivot, new Vector3(-34f * windup + 55f * snap, 0f, 0f));
+            Rotate(headPivot, new Vector3(24f * windup - 42f * snap, 0f, 0f));
+            Move(headPivot, new Vector3(0f, -0.15f * windup, 0.7f * snap));
+        }
+
+        void PoseRush(float startup, float active, float recovery, bool backwards)
+        {
+            float brace = Smooth(startup) * (1f - Smooth(recovery));
+            float drive = active > 0f ? Mathf.Sin(Mathf.Clamp01(active) * Mathf.PI) : 0f;
+            float direction = backwards ? -1f : 1f;
+
+            Rotate(torsoPivot, new Vector3(18f * brace * direction, 0f, 0f));
+            Rotate(neckPivot, new Vector3(-24f * brace * direction, 0f, 0f));
+            Rotate(wingLPivot, new Vector3(0f, 48f * brace, -22f * brace));
+            Rotate(wingRPivot, new Vector3(0f, -48f * brace, 22f * brace));
+            Move(visualRoot, new Vector3(0f, -0.16f * brace, drive * 0.45f * direction));
+            Rotate(frontLegLPivot, new Vector3(-28f * brace + drive * 42f, 0f, 0f));
+            Rotate(frontLegRPivot, new Vector3(20f * brace - drive * 42f, 0f, 0f));
         }
 
         void PoseTailThrust(float startup, float active, float recovery)
@@ -248,18 +344,16 @@ namespace VelkhanaSlice.Monster
             Rotate(tailTip, new Vector3(-12f * windup, 82f * windup, 20f * windup));
         }
 
-        void PoseBodyCheck(float startup, float active, float recovery)
+        void PoseTailSwing(float startup, float active, float recovery)
         {
-            float commitment = Smooth(startup) * (1f - Smooth(recovery));
-            float impact = Mathf.Sin(Mathf.Clamp01(active) * Mathf.PI);
+            float coil = Smooth(startup) * (1f - Smooth(recovery));
+            float sweep = active > 0f ? Mathf.Lerp(-1f, 1f, Smooth(active)) : -1f;
 
-            Move(visualRoot, new Vector3(0.4f * impact, -0.18f * commitment, 0f));
-            Rotate(torsoPivot, new Vector3(12f * commitment, 0f, -32f * commitment));
-            Rotate(neckPivot, new Vector3(-10f * commitment, 18f * commitment, 18f * commitment));
-            Rotate(wingLPivot, new Vector3(0f, 52f * commitment, -28f * commitment));
-            Rotate(wingRPivot, new Vector3(0f, -52f * commitment, 28f * commitment));
-            Rotate(frontLegLPivot, new Vector3(-22f * commitment, 0f, 0f));
-            Rotate(frontLegRPivot, new Vector3(18f * commitment, 0f, 0f));
+            Rotate(torsoPivot, new Vector3(0f, -24f * coil + 45f * sweep, 8f * coil));
+            Rotate(neckPivot, new Vector3(0f, 20f * coil - 30f * sweep, 0f));
+            Rotate(tailRoot, new Vector3(0f, 85f * coil + 160f * sweep, 35f * coil));
+            Rotate(tailMiddle, new Vector3(0f, -115f * coil + 105f * sweep, -18f * coil));
+            Rotate(tailTip, new Vector3(0f, 74f * coil + 75f * sweep, 0f));
         }
 
         void PoseIceBeam(float startup, float active, float recovery, bool sweeping)
@@ -295,6 +389,19 @@ namespace VelkhanaSlice.Monster
             Rotate(tailRoot, new Vector3(18f * raise, 0f, 0f));
         }
 
+        void PoseVerticalBreath(float startup, float active, float recovery)
+        {
+            float charge = Smooth(startup) * (1f - Smooth(recovery));
+            float fire = active > 0f && recovery <= 0f ? 1f : 0f;
+
+            Rotate(neckPivot, new Vector3(58f * charge, 0f, 0f));
+            Rotate(headPivot, new Vector3(38f * charge, 0f, 0f));
+            Rotate(wingLPivot, new Vector3(-18f, 0f, 72f * charge));
+            Rotate(wingRPivot, new Vector3(-18f, 0f, -72f * charge));
+            Move(headPivot, new Vector3(0f, -0.45f * charge, 0f));
+            SetBreathEffect(fire > 0f, 1.45f);
+        }
+
         void SetBreathEffect(bool active, float width)
         {
             if (_beamRenderer != null) _beamRenderer.enabled = active;
@@ -319,6 +426,12 @@ namespace VelkhanaSlice.Monster
         {
             Color glow = StageGlowColor(_brain.stage);
             float strength = StageGlowStrength(_brain.stage);
+            if (_brain.enraged)
+            {
+                float ragePulse = 0.85f + Mathf.Sin(Time.time * 7f) * 0.15f;
+                glow = Color.Lerp(glow, new Color(1f, 0.12f, 0.04f), 0.48f);
+                strength = Mathf.Max(strength, 0.9f * ragePulse);
+            }
 
             for (int i = 0; i < _materials.Count; i++)
             {

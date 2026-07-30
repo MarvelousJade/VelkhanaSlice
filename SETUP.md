@@ -40,21 +40,34 @@ To rebuild both the generated scene and Windows player in one step, use
 and ensures the player scene and script assembly are generated together.
 
 Edit `Assets/Editor/GrayboxSceneBuilder.cs` and rebuild rather than editing the scene by hand, so
-the arena setup stays reviewable as a diff. The builder creates the `Hurtbox` layer, the eleven
+the arena setup stays reviewable as a diff. The builder creates the `Hurtbox` layer, the 21
 placeholder `AttackDefinition` assets under `Assets/Data/Attacks`, a hunter with its blade point
 and camera, and Velkhana with nine body-part hurtboxes.
 
 The frame counts in the builder are placeholders. They are the numbers to overwrite from
 frame-stepped reference footage, and nothing else has to change when they do.
 
-Velkhana's decision ranges use the decoded EM124 `Combat_Enter` thresholds: 8.5 m close and
-17 m medium, treating the game's distance units as centimetres. `Combat_Main` also has distinct
-enraged/non-enraged weighted branches, represented by `enraged` and each option's
-`enragedWeightMultiplier`. The implementation is intentionally smaller than the full THK graph.
+Velkhana's context gate uses the decoded EM124 `Combat_Enter` thresholds: 8.5 m horizontal with a
+7.5 m vertical gate, then a 17 m 3D fallback, treating the game's distance units as centimetres.
+Action options reproduce the important 2–28 m tiers and front/flank/rear sectors seen in
+`Global.node_093..101`. Each option carries its source THK node name, normal/enraged weights,
+critical-health weighting and an explicit Mode0/1/2 mask.
+
+Mode0/1/2 preserve the three table buckets selected by unresolved `function#101`. The demo maps
+them to the visible neutral/ice-stage presentation, but deliberately does not rename the predicate
+or claim its engine meaning has been proven. The HUD displays context, mode, source node, range
+target and sequence step so the decision can be audited while playing.
+
+Multi-action patterns are data sequences. For example the aerial `Global.node_063` placeholder
+takes off, plays vertical breath and ice-wave steps with a target/arena interrupt pass between
+them, dives with a tail sting, then lands. Damage fills a rage threshold, entering a visible roar
+transition and the separate enraged weighting table. Completed sequences escalate the ice-armour
+stage; breaking enough armour suppresses the rebuild cycle temporarily. Selection uses a fixed
+seed by default so captures and technical-demo reviews are reproducible.
 
 Velkhana has a separate, collider-free `VisualRoot` containing named torso, neck, head, wing, leg
-and three-piece tail pivots. `VelkhanaPresentation` poses it for tail thrust, body check, straight
-beam, sweeping breath and ice spires, plus idle/reposition movement and armour-phase glow. The nine
+and three-piece tail pivots. `VelkhanaPresentation` poses bite, rush/back-step, tail strings,
+straight/90/180/freeze breaths, ice control, rage, takeoff, aerial attacks and landing. The nine
 stationary gameplay volumes live under `GameplayHurtboxes`; procedural animation never moves them
 or the solid `BodyBlocker`. Her extracted `em124_00..08.lmt`/`.mbd` files confirm where the original
 animation banks live, but remain private reference files outside `Assets`.
@@ -76,9 +89,10 @@ attacking while sheathed automatically draws it with the draw slash.
 
 ## Tests
 
-Edit-mode tests cover frame-window, damage and direct steering maths. Play-mode tests drive real
-fixed frames, verify observable attack/recovery/reposition states, and check that the visual rig
-cannot accidentally acquire gameplay colliders.
+Edit-mode tests cover frame-window, damage, steering, precise EM124 condition gates and mode
+mapping. Play-mode tests drive real fixed frames, verify attack/recovery/reposition, sequence
+boundaries, rage, takeoff/aerial/landing contexts, and check that the visual rig cannot accidentally
+acquire gameplay colliders.
 
 ```
 Unity.exe -batchmode -projectPath . -runTests -testPlatform EditMode -testResults edit.xml -logFile -
@@ -109,9 +123,12 @@ outside the game window and does not depend on window focus.
 `ArenaHazardManager`, pooled `IceWall` / `IceSpire`, `CombatTelemetryRecorder`, guard and sharpness,
 lock-on, Slinger Burst, tail sever. See the plan document for where each belongs.
 
-Velkhana's repositioning is direct graybox locomotion rather than obstacle-aware navigation, and
-the breath beam is a presentation-only primitive rather than a final effect. Death is tracked on
-`HunterHealth` but nothing reacts to it, so there is still no win or lose.
+Velkhana's repositioning is direct arena locomotion rather than obstacle-aware navigation, and
+the breath beam is a presentation-only primitive rather than a final effect. This is a semantic
+reconstruction of the highest-value combat paths, not a literal execution of all 453 decoded nodes;
+Palico targeting, blinded/mount/turf-war/area-change tables and unresolved engine predicates remain
+outside the demo. Death is tracked on `HunterHealth` but nothing reacts to it, so there is still no
+win or lose.
 
 The hunter's own input path has no automated coverage: driving it needs `InputTestFixture` from
 the Input System package, which needs `testables` in the manifest. Worth adding when combo-buffering

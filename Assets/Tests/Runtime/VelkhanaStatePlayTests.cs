@@ -128,5 +128,124 @@ namespace VelkhanaSlice.PlayTests
                 Object.DestroyImmediate(attack);
             }
         }
+
+        [UnityTest]
+        public IEnumerator SequenceKeepsIndividualAttackTimelinesAndInterruptBoundaries()
+        {
+            AttackDefinition first = Attack(2, 1, 2);
+            AttackDefinition second = Attack(2, 1, 2);
+            VelkhanaBrain brain = Brain(
+                new Vector3(0f, 0f, 3f), RangeBand.Close, first,
+                out GameObject root, out GameObject hunter);
+            brain.options[0].calmFollowUps = new[] { second };
+
+            try
+            {
+                int budget = 100;
+                while (brain.CurrentAttack != first && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+
+                Assert.AreSame(first, brain.CurrentAttack);
+                Assert.AreEqual(2, brain.SequenceLength);
+                Assert.AreEqual(0, brain.SequenceStep);
+
+                while (brain.CurrentAttack != second && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+
+                Assert.AreSame(second, brain.CurrentAttack);
+                Assert.AreEqual(1, brain.SequenceStep);
+                Assert.AreEqual(0, brain.AttackFrame,
+                    "each THK action step owns a fresh authoritative frame timeline");
+
+                while (brain.CurrentAttack != null && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+
+                Assert.AreEqual(VelkhanaState.Observe, brain.CurrentState);
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+                Object.DestroyImmediate(hunter);
+                Object.DestroyImmediate(first);
+                Object.DestroyImmediate(second);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator AerialSequenceUsesTakeoffAndLandingContexts()
+        {
+            AttackDefinition attack = Attack(2, 1, 2);
+            VelkhanaBrain brain = Brain(
+                new Vector3(0f, 0f, 3f), RangeBand.Close, attack,
+                out GameObject root, out GameObject hunter);
+            brain.options[0].takeOffBeforeSequence = true;
+            brain.options[0].landAfterSequence = true;
+            brain.takeoffFrames = 3;
+            brain.landingFrames = 3;
+
+            try
+            {
+                int budget = 100;
+                while (brain.CurrentState != VelkhanaState.Takeoff && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+
+                Assert.AreEqual(VelkhanaState.Takeoff, brain.CurrentState);
+                Assert.IsFalse(brain.IsAirborne);
+
+                while (brain.CurrentAttack == null && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+
+                Assert.IsTrue(brain.IsAirborne);
+                Assert.AreEqual(VelkhanaContext.AerialCombat, brain.CurrentContext);
+
+                while (brain.CurrentState != VelkhanaState.Landing && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+
+                Assert.IsTrue(brain.IsAirborne, "landing remains an aerial gameplay context");
+
+                while (brain.IsAirborne && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+
+                Assert.AreEqual(VelkhanaState.Observe, brain.CurrentState);
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+                Object.DestroyImmediate(hunter);
+                Object.DestroyImmediate(attack);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator DamageBuildupTriggersAnObservableRageTransition()
+        {
+            AttackDefinition attack = Attack();
+            VelkhanaBrain brain = Brain(
+                new Vector3(0f, 0f, 3f), RangeBand.Close, attack,
+                out GameObject root, out GameObject hunter);
+            brain.automaticEnrage = true;
+            brain.rageDamageThreshold = 20f;
+            brain.rageTransitionFrames = 3;
+
+            try
+            {
+                brain.ApplyBossDamage(20f);
+                Assert.IsTrue(brain.enraged);
+                Assert.AreEqual(VelkhanaState.RageTransition, brain.CurrentState);
+                Assert.AreEqual(VelkhanaContext.RageTransition, brain.CurrentContext);
+
+                for (int i = 0; i < 4; i++)
+                    yield return new WaitForFixedUpdate();
+
+                Assert.AreNotEqual(VelkhanaState.RageTransition, brain.CurrentState);
+                Assert.IsTrue(brain.enraged, "rage persists after the roar transition");
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+                Object.DestroyImmediate(hunter);
+                Object.DestroyImmediate(attack);
+            }
+        }
     }
 }

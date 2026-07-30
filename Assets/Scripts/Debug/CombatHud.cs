@@ -50,10 +50,15 @@ namespace VelkhanaSlice.DebugTools
                     ? $"{brain.CurrentAttack.name} f{brain.AttackFrame}"
                     : "-";
                 GUI.Label(new Rect(20f, 76f, 800f, 24f),
-                    $"velkhana {brain.CurrentState} f{brain.StateFrame}  {brain.stage}  " +
-                    $"enraged {brain.enraged}  target {brain.DesiredBand}  attack {attack}", _label);
+                    $"velkhana {brain.CurrentState} f{brain.StateFrame}  {brain.CurrentContext}  " +
+                    $"{brain.CombatMode}/{brain.stage}  airborne {brain.IsAirborne}", _label);
+                GUI.Label(new Rect(20f, 102f, 1100f, 24f),
+                    $"boss HP {brain.CurrentHealth:0}/{brain.maxHealth:0}  " +
+                    $"enraged {brain.enraged} rage {brain.RageBuild:P0}  " +
+                    $"target {brain.DesiredDistance:0.0}m  {brain.CurrentThkNode}  " +
+                    $"sequence {brain.SequenceStep + 1}/{brain.SequenceLength}  attack {attack}", _label);
 
-                float y = 102f;
+                float y = 128f;
                 foreach (var part in brain.GetComponentsInChildren<BodyPartHurtbox>())
                 {
                     if (!part.IsBroken && part.AccumulatedDamage <= 0f) continue;

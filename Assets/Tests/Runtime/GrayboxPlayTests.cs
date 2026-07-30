@@ -327,11 +327,19 @@ namespace VelkhanaSlice.PlayTests
             Assert.IsNotNull(presentation.tailRoot, "Velkhana tail root is unassigned");
             Assert.IsNotNull(presentation.tailMiddle, "Velkhana tail middle is unassigned");
             Assert.IsNotNull(presentation.tailTip, "Velkhana tail tip is unassigned");
+            Assert.IsNotNull(presentation.adjustBite, "bite pose mapping is unassigned");
+            Assert.IsNotNull(presentation.rush, "rush pose mapping is unassigned");
+            Assert.IsNotNull(presentation.backStepPierce, "back-step pose mapping is unassigned");
             Assert.IsNotNull(presentation.tailThrust, "tail thrust pose mapping is unassigned");
-            Assert.IsNotNull(presentation.bodyCheck, "body check pose mapping is unassigned");
-            Assert.IsNotNull(presentation.iceBeam, "ice beam pose mapping is unassigned");
-            Assert.IsNotNull(presentation.sweepingBreath, "sweeping breath pose mapping is unassigned");
+            Assert.IsNotNull(presentation.tailSwing, "tail swing pose mapping is unassigned");
+            Assert.IsNotNull(presentation.straightBreath, "straight breath pose mapping is unassigned");
+            Assert.IsNotNull(presentation.sweep180Breath, "180 breath pose mapping is unassigned");
+            Assert.IsNotNull(presentation.iceWave, "ice wave pose mapping is unassigned");
+            Assert.IsNotNull(presentation.areaBreath, "area breath pose mapping is unassigned");
+            Assert.IsNotNull(presentation.freezeBreath, "freeze breath pose mapping is unassigned");
             Assert.IsNotNull(presentation.iceSpires, "ice spires pose mapping is unassigned");
+            Assert.IsNotNull(presentation.verticalBreathFly, "aerial breath mapping is unassigned");
+            Assert.IsNotNull(presentation.flyTailStingToGround, "aerial landing mapping is unassigned");
             Assert.IsEmpty(presentation.visualRoot.GetComponentsInChildren<Collider>(true),
                 "presentation hierarchy must never contain gameplay colliders");
 

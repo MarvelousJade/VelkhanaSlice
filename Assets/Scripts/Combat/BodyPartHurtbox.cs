@@ -38,6 +38,7 @@ namespace VelkhanaSlice.Combat
 
         public event Action<BodyPartHurtbox> Broken;
         public event Action<BodyPartHurtbox> IceArmorShattered;
+        public event Action<BodyPartHurtbox, float> Damaged;
 
         /// <summary>Applies damage that has already been scaled by attack and charge level.</summary>
         public float Apply(float damage, float stagger)
@@ -48,6 +49,7 @@ namespace VelkhanaSlice.Combat
             {
                 iceArmorHealth = Mathf.Max(0f, iceArmorHealth - dealt);
                 if (iceArmorHealth <= 0f) IceArmorShattered?.Invoke(this);
+                Damaged?.Invoke(this, dealt);
                 return dealt;
             }
 
@@ -59,6 +61,8 @@ namespace VelkhanaSlice.Combat
                 IsBroken = true;
                 Broken?.Invoke(this);
             }
+
+            Damaged?.Invoke(this, dealt);
             return dealt;
         }
 
