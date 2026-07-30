@@ -54,6 +54,8 @@ MonoBehaviour:
     m_RotationOrder: 4
   forwardMotionScale: 1.6
   followUps:
-  - {fileID: 11400000, guid: 536a33f09a449754dbb8ff95e7e35f27, type: 2}
-  - {fileID: 11400000, guid: d2a3f8613fbb0994fa13265a87029bc9, type: 2}
+  - {fileID: 11400000, guid: f9c622cff3cbe2f43bb3a4edd132fe27, type: 2}
+  - {fileID: 11400000, guid: ffe8318dd84109542aefa3f15a462f0c, type: 2}
+  - {fileID: 11400000, guid: c509594524ebfc24a824896497728e77, type: 2}
+  - {fileID: 11400000, guid: 036fca766607c1b499bba98da6b8187f, type: 2}
   requiresPreviousHitConnected: 0

@@ -146,7 +146,25 @@ namespace VelkhanaSlice.EditorTools
 
         class GreatSword
         {
-            public AttackDefinition DrawSlash, ChargedSlash, StrongCharged, TrueCharged, WideSlash, Tackle;
+            public AttackDefinition DrawSlash;
+            public AttackDefinition ChargedSlash;
+            public AttackDefinition StrongCharged;
+            public AttackDefinition TrueChargedFirstHit;
+            public AttackDefinition TrueChargedFinishNormal;
+            public AttackDefinition TrueChargedFinishLevel1;
+            public AttackDefinition TrueChargedFinishLevel2;
+            public AttackDefinition TrueChargedFinishLevel3;
+            public AttackDefinition WideSlash;
+            public AttackDefinition StrongWideSlash;
+            public AttackDefinition LeapingWideSlash;
+            public AttackDefinition WideSlashPostStrong;
+            public AttackDefinition RisingSlash;
+            public AttackDefinition RisingSlashPostStrong;
+            public AttackDefinition SideBlow;
+            public AttackDefinition SideBlowPostStrong;
+            public AttackDefinition Tackle;
+            public AttackDefinition TackleLevel2;
+            public AttackDefinition Kick;
         }
 
         static GreatSword BuildGreatSwordAttacks()
@@ -155,10 +173,15 @@ namespace VelkhanaSlice.EditorTools
 
             gs.DrawSlash = Attack("GS_DrawSlash", 22, 4, 34, 14, 90f, 35f,
                 new Vector3(0f, 1f, 1.7f), new Vector3(2.6f, 2f, 2.8f),
-                a => a.forwardMotionScale = 1.4f);
+                a =>
+                {
+                    a.forwardMotionScale = 1.4f;
+                    a.cancelWindowStart = 38;
+                });
 
             gs.WideSlash = Attack("GS_WideSlash", 18, 5, 30, 12, 70f, 45f,
-                new Vector3(0f, 1f, 1.4f), new Vector3(3.6f, 2f, 2.4f));
+                new Vector3(0f, 1f, 1.4f), new Vector3(3.6f, 2f, 2.4f),
+                a => a.cancelWindowStart = 34);
 
             gs.Tackle = Attack("GS_Tackle", 10, 6, 22, 6, 30f, 20f,
                 new Vector3(0f, 1f, 1.2f), new Vector3(1.6f, 2f, 2.2f), a =>
@@ -169,12 +192,14 @@ namespace VelkhanaSlice.EditorTools
                 a.cancelWindowStart = 16;
             });
 
-            gs.TrueCharged = Attack("GS_TrueChargedSlash", 30, 6, 52, 16, 180f, 90f,
-                new Vector3(0f, 1f, 2f), new Vector3(3.4f, 2f, 3.6f), a =>
-            {
-                a.requiresPreviousHitConnected = true;
-                a.forwardMotionScale = 1.8f;
-            });
+            gs.TackleLevel2 = Attack("GS_TackleLevel2", 9, 6, 23, 5, 38f, 28f,
+                new Vector3(0f, 1f, 1.3f), new Vector3(1.8f, 2.1f, 2.4f), a =>
+                {
+                    a.hyperArmor = true;
+                    a.incomingDamageReduction = 0.5f;
+                    a.forwardMotionScale = 2.4f;
+                    a.cancelWindowStart = 16;
+                });
 
             gs.StrongCharged = Attack("GS_StrongChargedSlash", 26, 5, 44, 15, 130f, 70f,
                 new Vector3(0f, 1f, 1.9f), new Vector3(3.0f, 2f, 3.2f), a =>
@@ -190,18 +215,146 @@ namespace VelkhanaSlice.EditorTools
                 a.cancelWindowStart = 36;
             });
 
-            // The combo graph is these links and nothing else.
-            gs.ChargedSlash.followUps = new[] { gs.StrongCharged, gs.Tackle };
-            gs.StrongCharged.followUps = new[] { gs.TrueCharged, gs.Tackle };
-            gs.Tackle.followUps = new[] { gs.StrongCharged, gs.TrueCharged };
-            gs.DrawSlash.followUps = new[] { gs.ChargedSlash };
-            gs.WideSlash.followUps = new[] { gs.Tackle };
+            // WP00 node 39 is the TCS opening hit. A miss continues through ActionNo 78's normal
+            // second hit; a connected opening diverts into FinishEx 111/112/113 by hold power.
+            gs.TrueChargedFirstHit = Attack(
+                "GS_TrueChargedSlash_FirstHit", 22, 3, 14, 12, 48f, 25f,
+                new Vector3(0f, 1f, 1.7f), new Vector3(2.6f, 2f, 3f),
+                a => a.forwardMotionScale = 0.7f);
+            gs.TrueChargedFinishNormal = Attack(
+                "GS_TrueChargedSlash_Finish_Normal", 12, 5, 34, 8, 130f, 70f,
+                new Vector3(0f, 1f, 2.1f), new Vector3(3.3f, 2.2f, 3.8f),
+                a => a.forwardMotionScale = 1.6f);
+            gs.TrueChargedFinishLevel1 = Attack(
+                "GS_TrueChargedSlash_Finish_L1", 12, 5, 36, 8, 150f, 80f,
+                new Vector3(0f, 1f, 2.2f), new Vector3(3.5f, 2.2f, 4f),
+                a =>
+                {
+                    a.requiresPreviousHitConnected = true;
+                    a.chargeMultipliers = new[] { 1f, 1f, 1f, 1f };
+                    a.forwardMotionScale = 1.7f;
+                });
+            gs.TrueChargedFinishLevel2 = Attack(
+                "GS_TrueChargedSlash_Finish_L2", 12, 5, 38, 8, 205f, 100f,
+                new Vector3(0f, 1f, 2.3f), new Vector3(3.7f, 2.3f, 4.2f),
+                a =>
+                {
+                    a.requiresPreviousHitConnected = true;
+                    a.chargeMultipliers = new[] { 1f, 1f, 1f, 1f };
+                    a.forwardMotionScale = 1.8f;
+                });
+            gs.TrueChargedFinishLevel3 = Attack(
+                "GS_TrueChargedSlash_Finish_L3", 13, 6, 42, 8, 270f, 130f,
+                new Vector3(0f, 1f, 2.5f), new Vector3(4f, 2.5f, 4.6f),
+                a =>
+                {
+                    a.requiresPreviousHitConnected = true;
+                    a.chargeMultipliers = new[] { 1f, 1f, 1f, 1f };
+                    a.forwardMotionScale = 2f;
+                });
 
-            EditorUtility.SetDirty(gs.ChargedSlash);
-            EditorUtility.SetDirty(gs.StrongCharged);
-            EditorUtility.SetDirty(gs.Tackle);
-            EditorUtility.SetDirty(gs.DrawSlash);
-            EditorUtility.SetDirty(gs.WideSlash);
+            gs.StrongWideSlash = Attack(
+                "GS_StrongWideSlash", 20, 5, 34, 13, 88f, 55f,
+                new Vector3(0f, 1f, 1.5f), new Vector3(3.9f, 2.1f, 2.7f),
+                a => a.cancelWindowStart = 38);
+            gs.LeapingWideSlash = Attack(
+                "GS_LeapingWideSlash", 16, 6, 32, 10, 92f, 62f,
+                new Vector3(0f, 1f, 1.9f), new Vector3(4.2f, 2.2f, 3.4f),
+                a =>
+                {
+                    a.forwardMotionScale = 2.6f;
+                    a.cancelWindowStart = 34;
+                });
+            gs.WideSlashPostStrong = Attack(
+                "GS_WideSlash_PostStrong", 17, 5, 32, 11, 96f, 64f,
+                new Vector3(0f, 1f, 1.5f), new Vector3(4f, 2.1f, 2.8f),
+                a => a.cancelWindowStart = 34);
+            gs.RisingSlash = Attack(
+                "GS_RisingSlash", 21, 5, 34, 13, 78f, 50f,
+                new Vector3(0f, 1.4f, 1.5f), new Vector3(3f, 3.2f, 2.8f),
+                a => a.cancelWindowStart = 38);
+            gs.RisingSlashPostStrong = Attack(
+                "GS_RisingSlash_PostStrong", 19, 5, 34, 12, 98f, 66f,
+                new Vector3(0f, 1.5f, 1.6f), new Vector3(3.2f, 3.5f, 3f),
+                a => a.cancelWindowStart = 36);
+            gs.SideBlow = Attack(
+                "GS_SideBlow", 12, 4, 26, 8, 44f, 30f,
+                new Vector3(0f, 1.1f, 1.3f), new Vector3(2.7f, 1.8f, 2.2f),
+                a => a.cancelWindowStart = 24);
+            gs.SideBlowPostStrong = Attack(
+                "GS_SideBlow_PostStrong", 11, 4, 27, 7, 58f, 38f,
+                new Vector3(0f, 1.1f, 1.4f), new Vector3(2.9f, 1.9f, 2.3f),
+                a => a.cancelWindowStart = 24);
+            gs.Kick = Attack(
+                "GS_Kick", 8, 4, 18, 5, 20f, 24f,
+                new Vector3(0f, 0.8f, 1f), new Vector3(1.2f, 1.4f, 1.5f),
+                a => a.cancelWindowStart = 14);
+
+            // These arrays document the same readable graph for inspectors and generic tools.
+            gs.DrawSlash.followUps = new[] { gs.ChargedSlash };
+            gs.ChargedSlash.followUps =
+                new[] { gs.StrongCharged, gs.WideSlash, gs.SideBlow, gs.RisingSlash };
+            gs.WideSlash.followUps =
+                new[] { gs.ChargedSlash, gs.Tackle, gs.RisingSlash };
+            gs.SideBlow.followUps =
+                new[] { gs.ChargedSlash, gs.WideSlash, gs.RisingSlash };
+            gs.StrongCharged.followUps =
+                new[]
+                {
+                    gs.TrueChargedFirstHit,
+                    gs.StrongWideSlash,
+                    gs.SideBlowPostStrong,
+                    gs.RisingSlashPostStrong,
+                };
+            gs.StrongWideSlash.followUps =
+                new[] { gs.StrongCharged, gs.WideSlashPostStrong };
+            gs.SideBlowPostStrong.followUps =
+                new[] { gs.StrongCharged, gs.WideSlashPostStrong, gs.RisingSlashPostStrong };
+            gs.WideSlashPostStrong.followUps =
+                new[] { gs.StrongCharged, gs.TackleLevel2, gs.RisingSlashPostStrong };
+            gs.RisingSlash.followUps = new[] { gs.ChargedSlash, gs.WideSlash };
+            gs.RisingSlashPostStrong.followUps =
+                new[] { gs.StrongCharged, gs.WideSlashPostStrong };
+            gs.Tackle.followUps = new[] { gs.StrongCharged, gs.LeapingWideSlash };
+            gs.TackleLevel2.followUps =
+                new[] { gs.TrueChargedFirstHit, gs.LeapingWideSlash };
+            gs.LeapingWideSlash.followUps = new[] { gs.SideBlow };
+            gs.Kick.followUps = new[] { gs.Tackle };
+            gs.TrueChargedFirstHit.followUps =
+                new[]
+                {
+                    gs.TrueChargedFinishNormal,
+                    gs.TrueChargedFinishLevel1,
+                    gs.TrueChargedFinishLevel2,
+                    gs.TrueChargedFinishLevel3,
+                };
+
+            foreach (var attack in new[]
+                     {
+                         gs.DrawSlash,
+                         gs.ChargedSlash,
+                         gs.StrongCharged,
+                         gs.TrueChargedFirstHit,
+                         gs.TrueChargedFinishNormal,
+                         gs.TrueChargedFinishLevel1,
+                         gs.TrueChargedFinishLevel2,
+                         gs.TrueChargedFinishLevel3,
+                         gs.WideSlash,
+                         gs.StrongWideSlash,
+                         gs.LeapingWideSlash,
+                         gs.WideSlashPostStrong,
+                         gs.RisingSlash,
+                         gs.RisingSlashPostStrong,
+                         gs.SideBlow,
+                         gs.SideBlowPostStrong,
+                         gs.Tackle,
+                         gs.TackleLevel2,
+                         gs.Kick,
+                     })
+            {
+                EditorUtility.SetDirty(attack);
+            }
+
             return gs;
         }
 
@@ -409,8 +562,23 @@ namespace VelkhanaSlice.EditorTools
             var controller = hunter.AddComponent<HunterController>();
             controller.drawSlash = gs.DrawSlash;
             controller.chargedSlash = gs.ChargedSlash;
+            controller.strongChargedSlash = gs.StrongCharged;
+            controller.trueChargedSlash = gs.TrueChargedFirstHit;
+            controller.trueChargedFinishNormal = gs.TrueChargedFinishNormal;
+            controller.trueChargedFinishLevel1 = gs.TrueChargedFinishLevel1;
+            controller.trueChargedFinishLevel2 = gs.TrueChargedFinishLevel2;
+            controller.trueChargedFinishLevel3 = gs.TrueChargedFinishLevel3;
             controller.wideSlash = gs.WideSlash;
+            controller.strongWideSlash = gs.StrongWideSlash;
+            controller.leapingWideSlash = gs.LeapingWideSlash;
+            controller.wideSlashPostStrong = gs.WideSlashPostStrong;
+            controller.risingSlash = gs.RisingSlash;
+            controller.risingSlashPostStrong = gs.RisingSlashPostStrong;
+            controller.sideBlow = gs.SideBlow;
+            controller.sideBlowPostStrong = gs.SideBlowPostStrong;
             controller.tackle = gs.Tackle;
+            controller.tackleLevel2 = gs.TackleLevel2;
+            controller.kick = gs.Kick;
             controller.bladePoint = blade.transform;
             controller.hurtboxLayers = 1 << hurtboxLayer;
 

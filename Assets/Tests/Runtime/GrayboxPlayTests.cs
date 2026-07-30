@@ -301,11 +301,32 @@ namespace VelkhanaSlice.PlayTests
             Assert.IsNotNull(hunter, "no HunterController in the graybox scene");
             Assert.IsNotNull(hunter.drawSlash, "draw slash unassigned");
             Assert.IsNotNull(hunter.chargedSlash, "charged slash unassigned");
+            Assert.IsNotNull(hunter.strongChargedSlash, "strong charged slash unassigned");
+            Assert.IsNotNull(hunter.trueChargedSlash, "TCS opening hit unassigned");
+            Assert.IsNotNull(hunter.trueChargedFinishNormal, "normal TCS finisher unassigned");
+            Assert.IsNotNull(hunter.trueChargedFinishLevel1, "TCS level-1 finisher unassigned");
+            Assert.IsNotNull(hunter.trueChargedFinishLevel2, "TCS level-2 finisher unassigned");
+            Assert.IsNotNull(hunter.trueChargedFinishLevel3, "TCS level-3 finisher unassigned");
             Assert.IsNotNull(hunter.wideSlash, "wide slash unassigned");
+            Assert.IsNotNull(hunter.strongWideSlash, "strong wide slash unassigned");
+            Assert.IsNotNull(hunter.leapingWideSlash, "leaping wide slash unassigned");
+            Assert.IsNotNull(hunter.wideSlashPostStrong, "post-strong wide slash unassigned");
+            Assert.IsNotNull(hunter.risingSlash, "rising slash unassigned");
+            Assert.IsNotNull(hunter.risingSlashPostStrong, "post-strong rising slash unassigned");
+            Assert.IsNotNull(hunter.sideBlow, "side blow unassigned");
+            Assert.IsNotNull(hunter.sideBlowPostStrong, "post-strong side blow unassigned");
             Assert.IsNotNull(hunter.tackle, "tackle unassigned");
+            Assert.IsNotNull(hunter.tackleLevel2, "level-2 tackle unassigned");
+            Assert.IsNotNull(hunter.kick, "guard kick unassigned");
             Assert.IsNotNull(hunter.bladePoint, "blade point unassigned");
             Assert.IsNotNull(hunter.aimCamera, "aim camera unassigned");
             Assert.AreNotEqual(0, hunter.hurtboxLayers.value, "hurtbox layer mask is empty");
+
+            Transform hunterVisuals = hunter.transform.Find("VisualRoot");
+            Assert.IsNotNull(hunterVisuals, "hunter VisualRoot is missing");
+            Assert.IsEmpty(
+                hunterVisuals.GetComponentsInChildren<Collider>(true),
+                "hunter presentation must never contain gameplay colliders");
 
             var brain = Object.FindFirstObjectByType<VelkhanaBrain>();
             Assert.IsNotNull(brain, "no VelkhanaBrain in the graybox scene");

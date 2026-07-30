@@ -10,24 +10,24 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 31dad5dfd62b7a6429005d66fe5596ea, type: 3}
-  m_Name: GS_WideSlash
+  m_Name: GS_TackleLevel2
   m_EditorClassIdentifier: VelkhanaSlice::VelkhanaSlice.Combat.AttackDefinition
-  startupFrames: 18
-  activeFrames: 5
-  recoveryFrames: 30
-  trackingCutoffFrame: 12
-  cancelWindowStart: 34
-  damage: 70
-  staggerDamage: 45
+  startupFrames: 9
+  activeFrames: 6
+  recoveryFrames: 23
+  trackingCutoffFrame: 5
+  cancelWindowStart: 16
+  damage: 38
+  staggerDamage: 28
   chargeMultipliers:
   - 1
   - 1.4
   - 1.8
   - 2.4
-  hyperArmor: 0
-  incomingDamageReduction: 0
-  hitboxCenter: {x: 0, y: 1, z: 1.4}
-  hitboxSize: {x: 3.6, y: 2, z: 2.4}
+  hyperArmor: 1
+  incomingDamageReduction: 0.5
+  hitboxCenter: {x: 0, y: 1, z: 1.3}
+  hitboxSize: {x: 1.8, y: 2.1, z: 2.4}
   forwardMotion:
     serializedVersion: 2
     m_Curve:
@@ -52,9 +52,8 @@ MonoBehaviour:
     m_PreInfinity: 2
     m_PostInfinity: 2
     m_RotationOrder: 4
-  forwardMotionScale: 0
+  forwardMotionScale: 2.4
   followUps:
-  - {fileID: 11400000, guid: 901a916dcf551fb40939a33f78b47ffc, type: 2}
-  - {fileID: 11400000, guid: d2a3f8613fbb0994fa13265a87029bc9, type: 2}
-  - {fileID: 11400000, guid: ba7eee9f7f47f744f96a0e74b723237f, type: 2}
+  - {fileID: 11400000, guid: f9c622cff3cbe2f43bb3a4edd132fe27, type: 2}
+  - {fileID: 11400000, guid: 5a3936685c3637f4f93365b0cfea7141, type: 2}
   requiresPreviousHitConnected: 0

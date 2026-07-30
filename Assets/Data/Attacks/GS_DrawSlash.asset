@@ -16,7 +16,7 @@ MonoBehaviour:
   activeFrames: 4
   recoveryFrames: 34
   trackingCutoffFrame: 14
-  cancelWindowStart: -1
+  cancelWindowStart: 38
   damage: 90
   staggerDamage: 35
   chargeMultipliers:

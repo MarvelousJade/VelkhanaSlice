@@ -196,5 +196,210 @@ namespace VelkhanaSlice.Tests
             Assert.AreEqual(50f, DamageResolver.ResolveIncoming(100f, tackle), 0.001f);
             Assert.AreEqual(100f, DamageResolver.ResolveIncoming(100f, null), 0.001f);
         }
+
+        [Test]
+        public void ChargeStageAndHoldPowerAreIndependent()
+        {
+            var go = new GameObject("hunter");
+            try
+            {
+                var hunter = go.AddComponent<VelkhanaSlice.Hunter.HunterController>();
+                hunter.chargeThresholds = new[] { 2, 4, 6 };
+
+                Assert.AreEqual(0, hunter.ChargeLevelFor(1));
+                Assert.AreEqual(1, hunter.ChargeLevelFor(2));
+                Assert.AreEqual(2, hunter.ChargeLevelFor(4));
+                Assert.AreEqual(3, hunter.ChargeLevelFor(6));
+                Assert.AreEqual(
+                    VelkhanaSlice.Hunter.HunterController.ChargeStage.None,
+                    hunter.CurrentChargeStage,
+                    "reading hold power must never mutate the combo charge tier");
+            }
+            finally
+            {
+                Object.DestroyImmediate(go);
+            }
+        }
+
+        [Test]
+        public void Wp00CoreChargeRoutesMatchDecodedNodes()
+        {
+            var h = typeof(VelkhanaSlice.Hunter.HunterController);
+            Assert.IsNotNull(h);
+
+            AssertRoute(
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.Idle,
+                VelkhanaSlice.Hunter.HunterController.CoreInput.Primary,
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.IdleToCharge);
+            AssertRoute(
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.IdleToCharge,
+                VelkhanaSlice.Hunter.HunterController.CoreInput.Primary,
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.ChargeSlashHold);
+            AssertRoute(
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.ChargeSlashHold,
+                VelkhanaSlice.Hunter.HunterController.CoreInput.Release,
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.ChargeSlashRelease);
+            AssertRoute(
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.ChargeSlashHold,
+                VelkhanaSlice.Hunter.HunterController.CoreInput.Secondary,
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.Tackle);
+            AssertRoute(
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.ChargeSlashRelease,
+                VelkhanaSlice.Hunter.HunterController.CoreInput.Primary |
+                VelkhanaSlice.Hunter.HunterController.CoreInput.Direction,
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.StrongChargeHold);
+            AssertRoute(
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.StrongChargeHold,
+                VelkhanaSlice.Hunter.HunterController.CoreInput.Release,
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.StrongChargeRelease);
+            AssertRoute(
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.StrongChargeRelease,
+                VelkhanaSlice.Hunter.HunterController.CoreInput.Primary |
+                VelkhanaSlice.Hunter.HunterController.CoreInput.Direction,
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.TrueChargeHold);
+            AssertRoute(
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.TrueChargeHold,
+                VelkhanaSlice.Hunter.HunterController.CoreInput.Release,
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.TrueChargeFirstHit);
+        }
+
+        [Test]
+        public void TackleActionNumberControlsProgression()
+        {
+            AssertRoute(
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.Tackle,
+                VelkhanaSlice.Hunter.HunterController.CoreInput.Primary,
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.StrongChargeHold);
+            AssertRoute(
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.TackleLevel2,
+                VelkhanaSlice.Hunter.HunterController.CoreInput.Primary,
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.TrueChargeHold);
+            AssertRoute(
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.Tackle,
+                VelkhanaSlice.Hunter.HunterController.CoreInput.Secondary,
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.LeapingWideSlash);
+            AssertRoute(
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.TackleLevel2,
+                VelkhanaSlice.Hunter.HunterController.CoreInput.Secondary,
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.LeapingWideSlash);
+        }
+
+        [Test]
+        public void PostStrongBranchesStayDistinct()
+        {
+            var input = VelkhanaSlice.Hunter.HunterController.CoreInput.Primary;
+            var secondary = VelkhanaSlice.Hunter.HunterController.CoreInput.Secondary;
+            var direction = VelkhanaSlice.Hunter.HunterController.CoreInput.Direction;
+
+            AssertRoute(
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.StrongChargeRelease,
+                input | direction,
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.TrueChargeHold);
+            AssertRoute(
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.StrongChargeRelease,
+                secondary,
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.StrongWideSlash);
+            AssertRoute(
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.StrongChargeRelease,
+                input,
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.SideBlowPostStrong);
+            AssertRoute(
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.StrongChargeRelease,
+                input | secondary,
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.RisingSlashPostStrong);
+        }
+
+        [Test]
+        public void KickOnlyPrimaryRoutesToTackle()
+        {
+            AssertRoute(
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.Kick,
+                VelkhanaSlice.Hunter.HunterController.CoreInput.Primary,
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.Tackle);
+            AssertRoute(
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.Kick,
+                VelkhanaSlice.Hunter.HunterController.CoreInput.Secondary,
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.NoTransition);
+        }
+
+        [Test]
+        public void TrueChargedFinishUsesNormalMissOrPoweredConnectedVariant()
+        {
+            var hunter = typeof(VelkhanaSlice.Hunter.HunterController);
+            Assert.IsNotNull(hunter);
+
+            Assert.AreEqual(
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.TrueChargeNormalFinish,
+                VelkhanaSlice.Hunter.HunterController.ResolveTrueChargeFinish(3, false));
+            Assert.AreEqual(
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.TrueChargeFinishLevel1,
+                VelkhanaSlice.Hunter.HunterController.ResolveTrueChargeFinish(1, true));
+            Assert.AreEqual(
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.TrueChargeFinishLevel2,
+                VelkhanaSlice.Hunter.HunterController.ResolveTrueChargeFinish(2, true));
+            Assert.AreEqual(
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.TrueChargeFinishLevel3,
+                VelkhanaSlice.Hunter.HunterController.ResolveTrueChargeFinish(3, true));
+        }
+
+        [Test]
+        public void Wp00IdentityConstantsRemainTraceable()
+        {
+            Assert.AreEqual(
+                1013,
+                VelkhanaSlice.Hunter.HunterController.ActionNumberFor(
+                    VelkhanaSlice.Hunter.HunterController.Wp00Node.ChargeSlashHold));
+            Assert.AreEqual(
+                1014,
+                VelkhanaSlice.Hunter.HunterController.ActionNumberFor(
+                    VelkhanaSlice.Hunter.HunterController.Wp00Node.StrongChargeHold));
+            Assert.AreEqual(
+                102,
+                VelkhanaSlice.Hunter.HunterController.ActionNumberFor(
+                    VelkhanaSlice.Hunter.HunterController.Wp00Node.TrueChargeHold));
+            Assert.AreEqual(
+                78,
+                VelkhanaSlice.Hunter.HunterController.ActionNumberFor(
+                    VelkhanaSlice.Hunter.HunterController.Wp00Node.TrueChargeFirstHit));
+            Assert.AreEqual(
+                79,
+                VelkhanaSlice.Hunter.HunterController.ActionNumberFor(
+                    VelkhanaSlice.Hunter.HunterController.Wp00Node.Tackle));
+            Assert.AreEqual(
+                80,
+                VelkhanaSlice.Hunter.HunterController.ActionNumberFor(
+                    VelkhanaSlice.Hunter.HunterController.Wp00Node.TackleLevel2));
+            Assert.AreEqual(
+                81,
+                VelkhanaSlice.Hunter.HunterController.ActionNumberFor(
+                    VelkhanaSlice.Hunter.HunterController.Wp00Node.LeapingWideSlash));
+            Assert.AreEqual(
+                5,
+                VelkhanaSlice.Hunter.HunterController.ActionNumberFor(
+                    VelkhanaSlice.Hunter.HunterController.Wp00Node.DrawStationary));
+            Assert.AreEqual(
+                7,
+                VelkhanaSlice.Hunter.HunterController.ActionNumberFor(
+                    VelkhanaSlice.Hunter.HunterController.Wp00Node.DrawMoving));
+            Assert.AreEqual(
+                1005,
+                VelkhanaSlice.Hunter.HunterController.ActionNumberFor(
+                    VelkhanaSlice.Hunter.HunterController.Wp00Node.Evade));
+            Assert.AreEqual(
+                78,
+                VelkhanaSlice.Hunter.HunterController.ActionNumberFor(
+                    VelkhanaSlice.Hunter.HunterController.Wp00Node.TrueChargeNormalFinish));
+        }
+
+        static void AssertRoute(
+            VelkhanaSlice.Hunter.HunterController.Wp00Node from,
+            VelkhanaSlice.Hunter.HunterController.CoreInput input,
+            VelkhanaSlice.Hunter.HunterController.Wp00Node expected)
+        {
+            Assert.AreEqual(
+                expected,
+                VelkhanaSlice.Hunter.HunterController.ResolveCoreTransition(from, input),
+                $"{from} + {input}");
+        }
     }
 }

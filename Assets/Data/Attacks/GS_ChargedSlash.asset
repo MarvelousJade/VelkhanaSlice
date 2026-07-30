@@ -55,5 +55,7 @@ MonoBehaviour:
   forwardMotionScale: 1.5
   followUps:
   - {fileID: 11400000, guid: 90128e8cf6208d64399278ffe673e4a8, type: 2}
-  - {fileID: 11400000, guid: d2a3f8613fbb0994fa13265a87029bc9, type: 2}
+  - {fileID: 11400000, guid: f5236c1f50a9c224ca407b7d4249878a, type: 2}
+  - {fileID: 11400000, guid: 916acbc4c466fb54a8910ea489a6bf10, type: 2}
+  - {fileID: 11400000, guid: ba7eee9f7f47f744f96a0e74b723237f, type: 2}
   requiresPreviousHitConnected: 0

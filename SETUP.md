@@ -12,9 +12,9 @@ Unity 6000.4.11f1. Open the folder in Unity Hub; the editor generates `Library/`
 | `Combat/DamageResolver.cs` | The only place a hitbox turns into damage |
 | `Combat/AttackHitbox.cs` | `IAttacker` plus the shared box query both sides use |
 | `Combat/AttackTelegraph.cs` | Ground projection of the active hitbox, amber winding up, red on active frames |
-| `Hunter/HunterController.cs` | Movement, sheathing, charge levels, attack playback, roll |
-| `Hunter/HunterPresentation.cs` | Procedural graybox roll, sword draw/sheathe, charge pose and basic swing |
-| `Hunter/HunterHealth.cs` | Applies roll invulnerability and hyper-armour reduction to incoming hits |
+| `Hunter/HunterController.cs` | Movement plus the readable ground core of decoded `cFSMPl_W00`, including separate charge tiers and hold power |
+| `Hunter/HunterPresentation.cs` | Procedural graybox roll, guard, draw/sheathe, three charge stances and semantic Great Sword swings |
+| `Hunter/HunterHealth.cs` | Applies roll invulnerability, Great Sword guard and hyper-armour reduction to incoming hits |
 | `Monster/VelkhanaBrain.cs` | Observable combat states, direct range/angle repositioning, armour stages and weighted attack selection |
 | `Monster/VelkhanaPresentation.cs` | Procedural body, wing, neck, tail, breath and phase poses for the placeholder monster |
 | `CameraRig.cs` | Angled follow camera framing hunter and monster together |
@@ -40,7 +40,7 @@ To rebuild both the generated scene and Windows player in one step, use
 and ensures the player scene and script assembly are generated together.
 
 Edit `Assets/Editor/GrayboxSceneBuilder.cs` and rebuild rather than editing the scene by hand, so
-the arena setup stays reviewable as a diff. The builder creates the `Hurtbox` layer, the 21
+the arena setup stays reviewable as a diff. The builder creates the `Hurtbox` layer, the 34
 placeholder `AttackDefinition` assets under `Assets/Data/Attacks`, a hunter with its blade point
 and camera, and Velkhana with nine body-part hurtboxes.
 
@@ -75,17 +75,26 @@ animation banks live, but remain private reference files outside `Assets`.
 The capsule hunter uses a presentation-only `VisualRoot` with hand and back sword sockets.
 `HunterPresentation` poses that hierarchy from the combat state, so it never moves the
 `CharacterController` or hitboxes. No rig or Blender file is needed for these graybox animations.
-During a charge, the sword pulls behind the hunter and the hunter's emissive glow progresses from
-white to yellow to red as the three charge thresholds are reached.
+The retained decoded Great Sword graph separates the Basic, Strong and True combo charge stages
+from each stage's Lv0-Lv3 hold power. It includes the two different tackle shortcuts,
+wide/strong-wide/leaping-wide branches, post-strong side/rising attacks, guard-to-kick, and the
+two-part True Charged Slash route: a miss keeps ActionNo 78's normal second hit, while a connected
+opening selects the level-specific FinishEx action. Source WP00 node IDs and ActionNo values remain
+visible in the HUD/controller for traceability. Airborne, slinger, ledge and clutch branches are
+still outside this focused ground-combat demo.
+
+During every charge stage, the sword pulls progressively farther behind the hunter and the hunter's
+emissive glow progresses from white to yellow to red as the hold thresholds are reached.
 When final humanoid art arrives, replace this procedural component with an Animator while keeping
 `HunterController` as the source of gameplay timing.
 
 Controls are read straight from `Gamepad.current` / `Keyboard.current` / `Mouse.current`. There is
 no `.inputactions` asset yet, so bindings are fixed: left stick or WASD to move, right stick or
-mouse to aim, west button or left mouse to charge/attack, north button or right mouse for the
-secondary, east button or space to roll, south button or F to manually draw/sheathe, and left-stick
-click or either Shift key to run. Running automatically sheathes a drawn sword before accelerating;
-attacking while sheathed automatically draws it with the draw slash.
+mouse to aim, west button or left mouse for Triangle/primary, north button or right mouse for
+Circle/secondary, right trigger or R/left Ctrl to guard, east button or space to roll, south button
+or F to manually draw/sheathe, and left-stick click or either Shift key to run. Running automatically
+sheathes a drawn sword before accelerating; attacking during that transition cancels it into the
+correct stationary or moving draw route instead of skipping directly to charge.
 
 ## Tests
 

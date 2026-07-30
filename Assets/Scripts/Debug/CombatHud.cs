@@ -39,7 +39,8 @@ namespace VelkhanaSlice.DebugTools
                     : "-";
                 Vector3 p = hunterController.transform.position;
                 GUI.Label(new Rect(20f, 50f, 800f, 24f),
-                    $"state {hunterController.CurrentState}  charge {hunterController.ChargeLevel}  " +
+                    $"state {hunterController.CurrentState}  WP00 {hunterController.CurrentNode}  " +
+                    $"charge {hunterController.CurrentChargeStage}/Lv{hunterController.ChargeLevel}  " +
                     $"drawn {hunterController.WeaponDrawn}  running {hunterController.IsRunning}  " +
                     $"pos({p.x:0.0},{p.z:0.0})  attack {attack}", _label);
             }

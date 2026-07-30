@@ -5,8 +5,8 @@ using VelkhanaSlice.Combat;
 namespace VelkhanaSlice.Hunter
 {
     /// <summary>
-    /// Hunter side of the damage exchange. Roll invulnerability and the tackle's damage reduction
-    /// are applied here, which is what makes those two mechanics worth using.
+    /// Hunter side of the damage exchange. Roll invulnerability, Great Sword guard and tackle
+    /// hyper-armour reduction are applied here.
     /// </summary>
     [RequireComponent(typeof(HunterController))]
     public class HunterHealth : MonoBehaviour
@@ -37,6 +37,8 @@ namespace VelkhanaSlice.Hunter
             if (_controller.IsInvulnerable) return false;
 
             float taken = DamageResolver.ResolveIncoming(amount, _controller.CurrentAttack);
+            if (_controller.IsGuarding)
+                taken *= _controller.guardDamageMultiplier;
             Current = Mathf.Max(0f, Current - taken);
             Damaged?.Invoke(taken);
 

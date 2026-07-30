@@ -162,10 +162,22 @@ namespace VelkhanaSlice.Hunter
                 float chargeTime = _controller.ChargeFrames * Time.fixedDeltaTime;
                 float settle = Mathf.Clamp01(_controller.ChargeFrames / 12f);
                 float pulse = Mathf.Sin(chargeTime * 9f) * chargePulse * settle;
+                float stageWeight = ChargeStageWeight();
 
-                position.y -= chargeCrouch * settle + pulse;
-                rotation *= Quaternion.Euler(chargeLeanDegrees * settle, 0f, 0f);
-                scale = Vector3.Scale(scale, new Vector3(1f + 0.05f * settle, 1f - 0.08f * settle, 1f));
+                position.y -= chargeCrouch * settle * stageWeight + pulse;
+                rotation *= Quaternion.Euler(
+                    chargeLeanDegrees * settle * stageWeight,
+                    0f,
+                    -4f * (stageWeight - 1f) * settle);
+                scale = Vector3.Scale(
+                    scale,
+                    new Vector3(1f + 0.05f * settle, 1f - 0.08f * settle, 1f));
+            }
+            else if (_controller.CurrentState == HunterController.State.Guarding)
+            {
+                position.y -= 0.13f;
+                rotation *= Quaternion.Euler(10f, 0f, -8f);
+                scale = Vector3.Scale(scale, new Vector3(1.05f, 0.92f, 1f));
             }
             else if (_controller.IsRunning)
             {
@@ -181,8 +193,21 @@ namespace VelkhanaSlice.Hunter
                 float t = Mathf.Clamp01(_controller.AttackFrame / total);
                 float effort = Mathf.Sin(t * Mathf.PI);
 
-                position.y -= 0.08f * effort;
-                rotation *= Quaternion.Euler(8f * effort, 0f, -5f * effort);
+                if (IsTackle())
+                {
+                    position.y -= 0.18f * effort;
+                    rotation *= Quaternion.Euler(24f * effort, 0f, -12f * effort);
+                }
+                else if (_controller.CurrentNode == HunterController.Wp00Node.LeapingWideSlash)
+                {
+                    position.y += 0.16f * effort;
+                    rotation *= Quaternion.Euler(-14f * effort, 0f, 18f * effort);
+                }
+                else
+                {
+                    position.y -= 0.08f * effort;
+                    rotation *= Quaternion.Euler(8f * effort, 0f, -5f * effort);
+                }
             }
 
             visualRoot.localPosition = position;
@@ -220,6 +245,11 @@ namespace VelkhanaSlice.Hunter
                 localPosition = Vector3.Lerp(localPosition, chargePosition, settle);
                 localRotation = Quaternion.Slerp(localRotation, chargeRotation, settle);
             }
+            else if (_controller.CurrentState == HunterController.State.Guarding)
+            {
+                localPosition = handSocket.localPosition + new Vector3(-0.15f, 0.18f, 0.42f);
+                localRotation = Quaternion.Euler(-18f, 4f, 78f);
+            }
             else if (_controller.CurrentState == HunterController.State.Attacking &&
                      _controller.CurrentAttack != null)
             {
@@ -237,12 +267,51 @@ namespace VelkhanaSlice.Hunter
                     localRotation = Quaternion.Slerp(backSocket.localRotation, drawStrike, draw);
                     localRotation = Quaternion.Slerp(localRotation, handSocket.localRotation, recover);
                 }
+                else if (IsTackle() || _controller.CurrentAttack == _controller.kick)
+                {
+                    float impact = SmoothStep(Mathf.Clamp01(t * 2.4f));
+                    localPosition = Vector3.Lerp(
+                        handSocket.localPosition + new Vector3(-0.18f, 0.16f, -0.42f),
+                        handSocket.localPosition + new Vector3(0.04f, -0.08f, 0.16f),
+                        impact);
+                    localRotation = Quaternion.Slerp(
+                        Quaternion.Euler(-28f, -18f, 88f),
+                        Quaternion.Euler(8f, 0f, 76f),
+                        impact);
+                    localPosition = Vector3.Lerp(localPosition, handSocket.localPosition, recover);
+                    localRotation = Quaternion.Slerp(localRotation, handSocket.localRotation, recover);
+                }
+                else if (IsWideAttack() || IsSideBlow())
+                {
+                    float swing = SmoothStep(Mathf.Clamp01(t * 1.8f));
+                    float arc = Mathf.Lerp(-105f, 115f, swing);
+                    localPosition = handSocket.localPosition +
+                                    new Vector3(0f, 0.08f, IsWideAttack() ? 0.38f : 0.18f);
+                    localRotation = Quaternion.Euler(12f, arc, 74f);
+                    localPosition = Vector3.Lerp(localPosition, handSocket.localPosition, recover);
+                    localRotation = Quaternion.Slerp(localRotation, handSocket.localRotation, recover);
+                }
+                else if (IsRisingAttack())
+                {
+                    float swing = SmoothStep(Mathf.Clamp01(t * 1.8f));
+                    localPosition = Vector3.Lerp(
+                        handSocket.localPosition + new Vector3(0f, -0.42f, -0.3f),
+                        handSocket.localPosition + new Vector3(0f, 0.6f, 0.25f),
+                        swing);
+                    localRotation = Quaternion.Slerp(
+                        Quaternion.Euler(110f, 0f, -24f),
+                        Quaternion.Euler(-62f, 0f, 18f),
+                        swing);
+                    localPosition = Vector3.Lerp(localPosition, handSocket.localPosition, recover);
+                    localRotation = Quaternion.Slerp(localRotation, handSocket.localRotation, recover);
+                }
                 else
                 {
                     float swing = SmoothStep(Mathf.Clamp01(t * 1.8f));
+                    float trueChargeScale = IsTrueChargeAction() ? 1.25f : 1f;
                     Quaternion strike = Quaternion.Slerp(
                         ChargeSwordRotation(),
-                        Quaternion.Euler(82f, 0f, 12f),
+                        Quaternion.Euler(82f * trueChargeScale, 0f, 12f),
                         swing);
 
                     localPosition = Vector3.Lerp(
@@ -301,15 +370,69 @@ namespace VelkhanaSlice.Hunter
 
         Vector3 ChargeSwordPosition()
         {
-            return handSocket.localPosition + new Vector3(-0.12f, 0.28f, -0.9f);
+            float stageWeight = ChargeStageWeight();
+            return handSocket.localPosition +
+                   new Vector3(
+                       -0.12f * stageWeight,
+                       0.22f + 0.08f * stageWeight,
+                       -0.72f - 0.2f * stageWeight);
         }
 
-        static Quaternion ChargeSwordRotation()
+        Quaternion ChargeSwordRotation()
         {
+            float stageWeight = ChargeStageWeight();
             Quaternion pulledBack = Quaternion.LookRotation(
-                new Vector3(-0.18f, 0.62f, -0.76f).normalized,
+                new Vector3(
+                    -0.18f - 0.05f * (stageWeight - 1f),
+                    0.62f - 0.08f * (stageWeight - 1f),
+                    -0.76f).normalized,
                 Vector3.up);
-            return pulledBack * Quaternion.Euler(0f, 0f, -12f);
+            return pulledBack * Quaternion.Euler(0f, 0f, -12f * stageWeight);
+        }
+
+        float ChargeStageWeight()
+        {
+            switch (_controller.CurrentChargeStage)
+            {
+                case HunterController.ChargeStage.Strong: return 1.22f;
+                case HunterController.ChargeStage.True: return 1.48f;
+                default: return 1f;
+            }
+        }
+
+        bool IsTackle()
+        {
+            return _controller.CurrentAttack == _controller.tackle ||
+                   _controller.CurrentAttack == _controller.tackleLevel2;
+        }
+
+        bool IsWideAttack()
+        {
+            return _controller.CurrentAttack == _controller.wideSlash ||
+                   _controller.CurrentAttack == _controller.strongWideSlash ||
+                   _controller.CurrentAttack == _controller.leapingWideSlash ||
+                   _controller.CurrentAttack == _controller.wideSlashPostStrong;
+        }
+
+        bool IsSideBlow()
+        {
+            return _controller.CurrentAttack == _controller.sideBlow ||
+                   _controller.CurrentAttack == _controller.sideBlowPostStrong;
+        }
+
+        bool IsRisingAttack()
+        {
+            return _controller.CurrentAttack == _controller.risingSlash ||
+                   _controller.CurrentAttack == _controller.risingSlashPostStrong;
+        }
+
+        bool IsTrueChargeAction()
+        {
+            return _controller.CurrentAttack == _controller.trueChargedSlash ||
+                   _controller.CurrentAttack == _controller.trueChargedFinishNormal ||
+                   _controller.CurrentAttack == _controller.trueChargedFinishLevel1 ||
+                   _controller.CurrentAttack == _controller.trueChargedFinishLevel2 ||
+                   _controller.CurrentAttack == _controller.trueChargedFinishLevel3;
         }
 
         /// <summary>White at level one, yellow at level two, red at full charge.</summary>
