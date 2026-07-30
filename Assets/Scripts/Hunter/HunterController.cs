@@ -102,6 +102,9 @@ namespace VelkhanaSlice.Hunter
         public int sheatheFrames = 26;
 
         [Header("Great Sword — decoded WP00 ground core")]
+        [Tooltip("WP00 node 22 / ActionNo 5: non-damaging stationary unsheathe.")]
+        public AttackDefinition stationaryDraw;
+        [Tooltip("WP00 node 21 / ActionNo 7: moving draw attack.")]
         public AttackDefinition drawSlash;
         public AttackDefinition chargedSlash;
         public AttackDefinition strongChargedSlash;
@@ -353,7 +356,23 @@ namespace VelkhanaSlice.Hunter
                 !WeaponDrawn ||
                 (IsWeaponTransitioning && !_sheatheTarget);
 
-            if (_primaryPressed || _primaryHeld)
+            // WP00 idle checks the Triangle+Circle chord regardless of which button supplied the
+            // newest edge. This remains edge-gated: two continuing holds cannot retrigger it.
+            bool neutralChord =
+                !effectivelySheathed &&
+                ((_primaryPressed && _secondaryHeld) ||
+                 (_secondaryPressed && _primaryHeld));
+            if (neutralChord)
+            {
+                StartFreshCombo();
+                CancelWeaponTransition();
+                BeginAttack(risingSlash, Wp00Node.RisingSlash, false);
+                return;
+            }
+
+            // Enter neutral actions from the button edge only. A hold may sustain a charge once
+            // entered, but it is not a fresh Triangle press after an attack returns to idle.
+            if (ShouldEnterNeutralPrimary(_primaryPressed))
             {
                 StartFreshCombo();
 
@@ -365,7 +384,7 @@ namespace VelkhanaSlice.Hunter
                         _moveInput.sqrMagnitude > 0.02f
                             ? Wp00Node.DrawMoving
                             : Wp00Node.DrawStationary;
-                    BeginAttack(drawSlash, drawNode, false);
+                    BeginAttack(AttackForNode(drawNode), drawNode, false);
                     return;
                 }
 
@@ -380,7 +399,7 @@ namespace VelkhanaSlice.Hunter
                 return;
             }
 
-            if (_secondaryPressed && WeaponDrawn)
+            if (_secondaryPressed && WeaponDrawn && !effectivelySheathed)
             {
                 StartFreshCombo();
                 BeginAttack(wideSlash, Wp00Node.WideSlash, false);
@@ -642,8 +661,9 @@ namespace VelkhanaSlice.Hunter
             switch (node)
             {
                 case Wp00Node.DrawMoving:
-                case Wp00Node.DrawStationary:
                     return drawSlash;
+                case Wp00Node.DrawStationary:
+                    return stationaryDraw;
                 case Wp00Node.ChargeSlashRelease:
                     return chargedSlash;
                 case Wp00Node.StrongChargeRelease:
@@ -799,6 +819,15 @@ namespace VelkhanaSlice.Hunter
                 case 3: return Wp00Node.TrueChargeFinishLevel3;
                 default: return Wp00Node.TrueChargeFinishLevel1;
             }
+        }
+
+        /// <summary>
+        /// Neutral actions require a new press edge. Held state is intentionally absent: it may
+        /// sustain Charging, but cannot manufacture another idle-to-charge transition.
+        /// </summary>
+        public static bool ShouldEnterNeutralPrimary(bool primaryPressed)
+        {
+            return primaryPressed;
         }
 
         /// <summary>Decoded WP00 ActionNo for traceable core states; -1 means LinkMotion/common.</summary>

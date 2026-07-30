@@ -146,6 +146,7 @@ namespace VelkhanaSlice.EditorTools
 
         class GreatSword
         {
+            public AttackDefinition StationaryDraw;
             public AttackDefinition DrawSlash;
             public AttackDefinition ChargedSlash;
             public AttackDefinition StrongCharged;
@@ -171,6 +172,13 @@ namespace VelkhanaSlice.EditorTools
         {
             var gs = new GreatSword();
 
+            // WP00 node 22 / ActionNo 5 only draws the weapon. It intentionally has no active
+            // frames or hitbox; holding Triangle routes to node 3 after this presentation action.
+            gs.StationaryDraw = Attack(
+                "GS_StationaryDraw", 18, 0, 4, 18, 0f, 0f,
+                Vector3.zero, Vector3.zero);
+
+            // WP00 node 21 / ActionNo 7 is the distinct moving draw attack.
             gs.DrawSlash = Attack("GS_DrawSlash", 22, 4, 34, 14, 90f, 35f,
                 new Vector3(0f, 1f, 1.7f), new Vector3(2.6f, 2f, 2.8f),
                 a =>
@@ -291,6 +299,7 @@ namespace VelkhanaSlice.EditorTools
                 a => a.cancelWindowStart = 14);
 
             // These arrays document the same readable graph for inspectors and generic tools.
+            gs.StationaryDraw.followUps = new[] { gs.ChargedSlash };
             gs.DrawSlash.followUps = new[] { gs.ChargedSlash };
             gs.ChargedSlash.followUps =
                 new[] { gs.StrongCharged, gs.WideSlash, gs.SideBlow, gs.RisingSlash };
@@ -330,8 +339,9 @@ namespace VelkhanaSlice.EditorTools
                 };
 
             foreach (var attack in new[]
-                     {
-                         gs.DrawSlash,
+                      {
+                          gs.StationaryDraw,
+                          gs.DrawSlash,
                          gs.ChargedSlash,
                          gs.StrongCharged,
                          gs.TrueChargedFirstHit,
@@ -560,6 +570,7 @@ namespace VelkhanaSlice.EditorTools
             blade.transform.localPosition = new Vector3(0f, 0f, 1.6f);
 
             var controller = hunter.AddComponent<HunterController>();
+            controller.stationaryDraw = gs.StationaryDraw;
             controller.drawSlash = gs.DrawSlash;
             controller.chargedSlash = gs.ChargedSlash;
             controller.strongChargedSlash = gs.StrongCharged;

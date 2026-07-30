@@ -391,6 +391,16 @@ namespace VelkhanaSlice.Tests
                     VelkhanaSlice.Hunter.HunterController.Wp00Node.TrueChargeNormalFinish));
         }
 
+        [Test]
+        public void NeutralPrimaryRequiresANewPressEdge()
+        {
+            Assert.IsFalse(
+                VelkhanaSlice.Hunter.HunterController.ShouldEnterNeutralPrimary(false),
+                "a continuing hold must not restart charge after an attack returns to idle");
+            Assert.IsTrue(
+                VelkhanaSlice.Hunter.HunterController.ShouldEnterNeutralPrimary(true));
+        }
+
         static void AssertRoute(
             VelkhanaSlice.Hunter.HunterController.Wp00Node from,
             VelkhanaSlice.Hunter.HunterController.CoreInput input,

@@ -257,7 +257,21 @@ namespace VelkhanaSlice.Hunter
                 float t = Mathf.Clamp01(_controller.AttackFrame / total);
                 float recover = SmoothStep(Mathf.Clamp01((t - 0.62f) / 0.38f));
 
-                if (_controller.CurrentAttack == _controller.drawSlash)
+                if (_controller.CurrentAttack == _controller.stationaryDraw)
+                {
+                    // ActionNo 5 is an unsheathe only: move cleanly from the back socket to the
+                    // hand without borrowing the damaging moving-draw swing.
+                    float draw = SmoothStep(t);
+                    localPosition = Vector3.Lerp(
+                        backSocket.localPosition,
+                        handSocket.localPosition,
+                        draw);
+                    localRotation = Quaternion.Slerp(
+                        backSocket.localRotation,
+                        handSocket.localRotation,
+                        draw);
+                }
+                else if (_controller.CurrentAttack == _controller.drawSlash)
                 {
                     float drawDuration = Mathf.Max(1f, _controller.CurrentAttack.startupFrames);
                     float draw = SmoothStep(Mathf.Clamp01(_controller.AttackFrame / drawDuration));

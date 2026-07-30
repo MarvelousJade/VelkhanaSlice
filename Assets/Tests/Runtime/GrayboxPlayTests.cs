@@ -299,6 +299,7 @@ namespace VelkhanaSlice.PlayTests
 
             var hunter = Object.FindFirstObjectByType<HunterController>();
             Assert.IsNotNull(hunter, "no HunterController in the graybox scene");
+            Assert.IsNotNull(hunter.stationaryDraw, "stationary non-damaging draw unassigned");
             Assert.IsNotNull(hunter.drawSlash, "draw slash unassigned");
             Assert.IsNotNull(hunter.chargedSlash, "charged slash unassigned");
             Assert.IsNotNull(hunter.strongChargedSlash, "strong charged slash unassigned");

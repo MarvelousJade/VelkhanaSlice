@@ -64,6 +64,9 @@ namespace VelkhanaSlice.PlayTests
             hunter.rollFrames = 8;
             hunter.rollInvulnStart = 2;
             hunter.rollInvulnEnd = 5;
+            hunter.stationaryDraw = Attack("StationaryDraw");
+            hunter.stationaryDraw.activeFrames = 0;
+            hunter.stationaryDraw.damage = 0f;
             hunter.drawSlash = Attack("Draw");
             hunter.chargedSlash = Attack("ChargeRelease");
             hunter.strongChargedSlash = Attack("StrongRelease");
@@ -115,6 +118,181 @@ namespace VelkhanaSlice.PlayTests
             yield return Step();
             Assert.AreEqual(HunterController.State.Free, hunter.CurrentState);
             Assert.IsTrue(hunter.WeaponDrawn);
+        }
+
+        [UnityTest]
+        public IEnumerator StationaryDrawIsNonDamagingAndHoldRoutesIntoBasicCharge()
+        {
+            var hunter = MakeHunter(out var root);
+            try
+            {
+                Assert.IsFalse(hunter.WeaponDrawn);
+                Assert.IsFalse(hunter.stationaryDraw.HasHitbox);
+                Assert.AreEqual(0, hunter.stationaryDraw.activeFrames);
+                Assert.AreEqual(0f, hunter.stationaryDraw.damage, 0.001f);
+
+                yield return Step(primary: true);
+                Assert.AreEqual(HunterController.Wp00Node.DrawStationary, hunter.CurrentNode);
+                Assert.AreSame(hunter.stationaryDraw, hunter.CurrentAttack);
+                Assert.AreNotSame(hunter.drawSlash, hunter.CurrentAttack);
+
+                int budget = hunter.stationaryDraw.TotalFrames + 4;
+                while (hunter.CurrentState == HunterController.State.Attacking && budget-- > 0)
+                    yield return Step(primary: true);
+
+                Assert.AreEqual(HunterController.State.Charging, hunter.CurrentState);
+                Assert.AreEqual(HunterController.ChargeStage.Basic, hunter.CurrentChargeStage);
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator HeldPrimaryAfterMovingDrawDoesNotBecomeAFreshNeutralPress()
+        {
+            var hunter = MakeHunter(out var root);
+            try
+            {
+                yield return Step(primary: true, move: Vector2.up);
+                Assert.AreEqual(HunterController.Wp00Node.DrawMoving, hunter.CurrentNode);
+                Assert.AreSame(hunter.drawSlash, hunter.CurrentAttack);
+
+                int budget = hunter.drawSlash.TotalFrames + 4;
+                while (hunter.CurrentState == HunterController.State.Attacking && budget-- > 0)
+                    yield return Step(primary: true);
+
+                Assert.AreEqual(HunterController.State.Free, hunter.CurrentState);
+                Assert.AreEqual(HunterController.Wp00Node.Idle, hunter.CurrentNode);
+
+                // The same physical hold is still down, but no new press edge occurred.
+                yield return Step(primary: true);
+                yield return Step(primary: true);
+                Assert.AreEqual(HunterController.State.Free, hunter.CurrentState);
+                Assert.IsNull(hunter.CurrentAttack);
+                Assert.AreEqual(HunterController.ChargeStage.None, hunter.CurrentChargeStage);
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator NeutralChordAcceptsFreshSecondaryWhilePrimaryRemainsHeld()
+        {
+            var hunter = MakeHunter(out var root);
+            try
+            {
+                yield return Step(primary: true, move: Vector2.up);
+                Assert.AreEqual(HunterController.Wp00Node.DrawMoving, hunter.CurrentNode);
+
+                int budget = hunter.drawSlash.TotalFrames + 4;
+                while (hunter.CurrentState == HunterController.State.Attacking && budget-- > 0)
+                    yield return Step(primary: true);
+
+                Assert.AreEqual(HunterController.State.Free, hunter.CurrentState);
+                yield return Step(primary: true, secondary: true);
+
+                Assert.AreEqual(HunterController.State.Attacking, hunter.CurrentState);
+                Assert.AreEqual(HunterController.Wp00Node.RisingSlash, hunter.CurrentNode);
+                Assert.AreSame(hunter.risingSlash, hunter.CurrentAttack);
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator NeutralChordAcceptsFreshPrimaryWhileSecondaryRemainsHeld()
+        {
+            var hunter = MakeHunter(out var root);
+            try
+            {
+                yield return DrawWeapon(hunter);
+                yield return Step(secondary: true);
+                Assert.AreEqual(HunterController.Wp00Node.WideSlash, hunter.CurrentNode);
+
+                int budget = hunter.wideSlash.TotalFrames + 4;
+                while (hunter.CurrentState == HunterController.State.Attacking && budget-- > 0)
+                    yield return Step(secondary: true);
+
+                Assert.AreEqual(HunterController.State.Free, hunter.CurrentState);
+                yield return Step(primary: true, secondary: true);
+
+                Assert.AreEqual(HunterController.State.Attacking, hunter.CurrentState);
+                Assert.AreEqual(HunterController.Wp00Node.RisingSlash, hunter.CurrentNode);
+                Assert.AreSame(hunter.risingSlash, hunter.CurrentAttack);
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator PendingRunSheatheIgnoresFreshSecondaryWhilePrimaryIsHeld()
+        {
+            var hunter = MakeHunter(out var root);
+            try
+            {
+                // Establish a continuing primary hold without creating another neutral edge.
+                yield return Step(primary: true, move: Vector2.up);
+                int budget = hunter.drawSlash.TotalFrames + 4;
+                while (hunter.CurrentState == HunterController.State.Attacking && budget-- > 0)
+                    yield return Step(primary: true);
+                Assert.AreEqual(HunterController.State.Free, hunter.CurrentState);
+
+                yield return Step(primary: true, run: true, move: Vector2.up);
+                Assert.IsTrue(hunter.IsWeaponTransitioning);
+                Assert.IsFalse(hunter.WeaponTransitionDrawn);
+
+                // Secondary is the only new edge. The pending sheathe makes this effectively
+                // sheathed, so neither the drawn chord nor the drawn WideSlash route is legal.
+                yield return Step(
+                    primary: true,
+                    secondary: true,
+                    run: true,
+                    move: Vector2.up);
+
+                Assert.AreEqual(HunterController.State.Free, hunter.CurrentState);
+                Assert.AreNotEqual(HunterController.Wp00Node.WideSlash, hunter.CurrentNode);
+                Assert.IsNull(hunter.CurrentAttack);
+                Assert.IsTrue(hunter.IsWeaponTransitioning);
+                Assert.IsFalse(hunter.WeaponTransitionDrawn);
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator FreshPrimaryWithHeldSecondaryWhileSheathedUsesStationaryDraw()
+        {
+            var hunter = MakeHunter(out var root);
+            try
+            {
+                Assert.IsFalse(hunter.WeaponDrawn);
+
+                // Secondary's edge is consumed while sheathed; it remains held for the next step.
+                yield return Step(secondary: true);
+                Assert.AreEqual(HunterController.State.Free, hunter.CurrentState);
+                Assert.IsNull(hunter.CurrentAttack);
+
+                yield return Step(primary: true, secondary: true);
+
+                Assert.AreEqual(HunterController.State.Attacking, hunter.CurrentState);
+                Assert.AreEqual(HunterController.Wp00Node.DrawStationary, hunter.CurrentNode);
+                Assert.AreSame(hunter.stationaryDraw, hunter.CurrentAttack);
+                Assert.AreNotSame(hunter.risingSlash, hunter.CurrentAttack);
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+            }
         }
 
         [UnityTest]
