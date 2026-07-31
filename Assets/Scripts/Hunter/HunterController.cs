@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.LowLevel;
 using VelkhanaSlice.Combat;
 
 namespace VelkhanaSlice.Hunter
@@ -200,6 +201,10 @@ namespace VelkhanaSlice.Hunter
         bool _sheathePressed;
         bool _runHeld;
         bool _guardHeld;
+        uint _primaryPressUpdate = uint.MaxValue;
+        uint _secondaryPressUpdate = uint.MaxValue;
+        uint _dodgePressUpdate = uint.MaxValue;
+        uint _sheathePressUpdate = uint.MaxValue;
 
         void Awake()
         {
@@ -266,24 +271,58 @@ namespace VelkhanaSlice.Hunter
             _secondaryHeld =
                 (gp != null && gp.buttonNorth.isPressed) ||
                 (mouse != null && mouse.rightButton.isPressed);
-            _primaryPressed |=
+            _primaryPressed |= LatchPressOncePerInputUpdate(
                 (gp != null && gp.buttonWest.wasPressedThisFrame) ||
-                (mouse != null && mouse.leftButton.wasPressedThisFrame);
-            _secondaryPressed |=
+                (mouse != null && mouse.leftButton.wasPressedThisFrame),
+                ref _primaryPressUpdate);
+            _secondaryPressed |= LatchPressOncePerInputUpdate(
                 (gp != null && gp.buttonNorth.wasPressedThisFrame) ||
-                (mouse != null && mouse.rightButton.wasPressedThisFrame);
-            _dodgePressed |=
+                (mouse != null && mouse.rightButton.wasPressedThisFrame),
+                ref _secondaryPressUpdate);
+            _dodgePressed |= LatchPressOncePerInputUpdate(
                 (gp != null && gp.buttonEast.wasPressedThisFrame) ||
-                (kb != null && kb.spaceKey.wasPressedThisFrame);
-            _sheathePressed |=
+                (kb != null && kb.spaceKey.wasPressedThisFrame),
+                ref _dodgePressUpdate);
+            _sheathePressed |= LatchPressOncePerInputUpdate(
                 (gp != null && gp.buttonSouth.wasPressedThisFrame) ||
-                (kb != null && kb.fKey.wasPressedThisFrame);
+                (kb != null && kb.fKey.wasPressedThisFrame),
+                ref _sheathePressUpdate);
             _runHeld =
                 (gp != null && gp.leftStickButton.isPressed) ||
                 (kb != null && (kb.leftShiftKey.isPressed || kb.rightShiftKey.isPressed));
             _guardHeld =
                 (gp != null && gp.rightTrigger.ReadValue() > 0.5f) ||
                 (kb != null && (kb.rKey.isPressed || kb.leftCtrlKey.isPressed));
+        }
+
+        static bool LatchPressOncePerInputUpdate(
+            bool wasPressedThisFrame,
+            ref uint lastLatchedUpdate)
+        {
+            // wasPressedThisFrame is scoped to an Input System update, not a physics tick.
+            // With fixed input processing, several MonoBehaviour Updates can observe that same
+            // edge around fixed-step consumption. Record the input update identity so one physical
+            // press can enter the fixed simulation only once while held/charge state stays live.
+            return LatchPressForInputUpdate(
+                wasPressedThisFrame,
+                InputState.updateCount,
+                ref lastLatchedUpdate);
+        }
+
+        /// <summary>
+        /// Pure edge dedupe used by PollInput: one logical press may be latched once per Input
+        /// System update, while a later update remains a distinct physical press opportunity.
+        /// </summary>
+        public static bool LatchPressForInputUpdate(
+            bool wasPressedThisFrame,
+            uint inputUpdate,
+            ref uint lastLatchedUpdate)
+        {
+            if (!wasPressedThisFrame) return false;
+            if (lastLatchedUpdate == inputUpdate) return false;
+
+            lastLatchedUpdate = inputUpdate;
+            return true;
         }
 
         void ClearEdgeInput()
