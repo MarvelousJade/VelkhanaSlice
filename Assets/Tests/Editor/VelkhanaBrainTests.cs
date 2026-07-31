@@ -139,5 +139,92 @@ namespace VelkhanaSlice.Tests
                 VelkhanaAerialOptionFamily.Global052,
                 VelkhanaBrain.SelectCombatMainNode006(false, 99));
         }
+
+        [TestCase(VelkhanaCombatMode.Mode0, false, 59, VelkhanaGroundOpenerParent.None)]
+        [TestCase(VelkhanaCombatMode.Mode0, false, 60, VelkhanaGroundOpenerParent.Global105)]
+        [TestCase(VelkhanaCombatMode.Mode0, false, 74, VelkhanaGroundOpenerParent.Global105)]
+        [TestCase(VelkhanaCombatMode.Mode0, false, 75, VelkhanaGroundOpenerParent.None)]
+        [TestCase(VelkhanaCombatMode.Mode0, true, 54, VelkhanaGroundOpenerParent.None)]
+        [TestCase(VelkhanaCombatMode.Mode0, true, 55, VelkhanaGroundOpenerParent.Global105)]
+        [TestCase(VelkhanaCombatMode.Mode0, true, 64, VelkhanaGroundOpenerParent.Global105)]
+        [TestCase(VelkhanaCombatMode.Mode0, true, 65, VelkhanaGroundOpenerParent.None)]
+        [TestCase(VelkhanaCombatMode.Mode0, true, 74, VelkhanaGroundOpenerParent.None)]
+        [TestCase(VelkhanaCombatMode.Mode0, true, 75, VelkhanaGroundOpenerParent.Global108)]
+        [TestCase(VelkhanaCombatMode.Mode0, true, 79, VelkhanaGroundOpenerParent.Global108)]
+        [TestCase(VelkhanaCombatMode.Mode0, true, 80, VelkhanaGroundOpenerParent.None)]
+        [TestCase(VelkhanaCombatMode.Mode1, false, 49, VelkhanaGroundOpenerParent.None)]
+        [TestCase(VelkhanaCombatMode.Mode1, false, 50, VelkhanaGroundOpenerParent.Global105)]
+        [TestCase(VelkhanaCombatMode.Mode1, false, 59, VelkhanaGroundOpenerParent.Global105)]
+        [TestCase(VelkhanaCombatMode.Mode1, false, 60, VelkhanaGroundOpenerParent.Global106)]
+        [TestCase(VelkhanaCombatMode.Mode1, false, 69, VelkhanaGroundOpenerParent.Global106)]
+        [TestCase(VelkhanaCombatMode.Mode1, false, 70, VelkhanaGroundOpenerParent.None)]
+        [TestCase(VelkhanaCombatMode.Mode1, true, 34, VelkhanaGroundOpenerParent.None)]
+        [TestCase(VelkhanaCombatMode.Mode1, true, 35, VelkhanaGroundOpenerParent.Global105)]
+        [TestCase(VelkhanaCombatMode.Mode1, true, 44, VelkhanaGroundOpenerParent.Global105)]
+        [TestCase(VelkhanaCombatMode.Mode1, true, 45, VelkhanaGroundOpenerParent.Global106)]
+        [TestCase(VelkhanaCombatMode.Mode1, true, 49, VelkhanaGroundOpenerParent.Global106)]
+        [TestCase(VelkhanaCombatMode.Mode1, true, 50, VelkhanaGroundOpenerParent.None)]
+        [TestCase(VelkhanaCombatMode.Mode1, true, 64, VelkhanaGroundOpenerParent.None)]
+        [TestCase(VelkhanaCombatMode.Mode1, true, 65, VelkhanaGroundOpenerParent.Global108)]
+        [TestCase(VelkhanaCombatMode.Mode1, true, 74, VelkhanaGroundOpenerParent.Global108)]
+        [TestCase(VelkhanaCombatMode.Mode1, true, 75, VelkhanaGroundOpenerParent.None)]
+        [TestCase(VelkhanaCombatMode.Mode2, false, 44, VelkhanaGroundOpenerParent.None)]
+        [TestCase(VelkhanaCombatMode.Mode2, false, 45, VelkhanaGroundOpenerParent.Global106)]
+        [TestCase(VelkhanaCombatMode.Mode2, false, 64, VelkhanaGroundOpenerParent.Global106)]
+        [TestCase(VelkhanaCombatMode.Mode2, false, 65, VelkhanaGroundOpenerParent.None)]
+        [TestCase(VelkhanaCombatMode.Mode2, true, 39, VelkhanaGroundOpenerParent.None)]
+        [TestCase(VelkhanaCombatMode.Mode2, true, 40, VelkhanaGroundOpenerParent.Global106)]
+        [TestCase(VelkhanaCombatMode.Mode2, true, 49, VelkhanaGroundOpenerParent.Global106)]
+        [TestCase(VelkhanaCombatMode.Mode2, true, 50, VelkhanaGroundOpenerParent.None)]
+        [TestCase(VelkhanaCombatMode.Mode2, true, 69, VelkhanaGroundOpenerParent.None)]
+        [TestCase(VelkhanaCombatMode.Mode2, true, 70, VelkhanaGroundOpenerParent.Global108)]
+        [TestCase(VelkhanaCombatMode.Mode2, true, 79, VelkhanaGroundOpenerParent.Global108)]
+        [TestCase(VelkhanaCombatMode.Mode2, true, 80, VelkhanaGroundOpenerParent.None)]
+        public void GroundOpenerParentUsesDecodedSourceOrderBoundaries(
+            VelkhanaCombatMode mode,
+            bool enraged,
+            int roll,
+            VelkhanaGroundOpenerParent expected)
+        {
+            Assert.AreEqual(
+                expected,
+                VelkhanaBrain.SelectGroundOpenerParent(mode, enraged, roll));
+        }
+
+        [TestCase(3f, 19, VelkhanaNode087Leaf.Global004)]
+        [TestCase(3f, 20, VelkhanaNode087Leaf.Global009)]
+        [TestCase(3.001f, 49, VelkhanaNode087Leaf.Global004)]
+        [TestCase(3.001f, 50, VelkhanaNode087Leaf.Global006)]
+        [TestCase(7f, 74, VelkhanaNode087Leaf.Global006)]
+        [TestCase(7f, 75, VelkhanaNode087Leaf.Global009)]
+        [TestCase(7.001f, 19, VelkhanaNode087Leaf.Global004)]
+        [TestCase(7.001f, 20, VelkhanaNode087Leaf.Global006)]
+        [TestCase(13f, 99, VelkhanaNode087Leaf.Global006)]
+        [TestCase(13.001f, 0, VelkhanaNode087Leaf.None)]
+        [TestCase(13.001f, 99, VelkhanaNode087Leaf.None)]
+        public void GlobalNode087UsesExactDistanceAndRollBoundaries(
+            float distance,
+            int roll,
+            VelkhanaNode087Leaf expected)
+        {
+            Assert.AreEqual(expected, VelkhanaBrain.SelectNode087Leaf(distance, roll));
+        }
+
+        [Test]
+        public void ProjectGroundResetPacingNeverDropsBelowReadabilityFloor()
+        {
+            Assert.AreEqual(
+                VelkhanaBrain.ProjectMinimumGroundResetFrames,
+                VelkhanaBrain.ProjectGroundResetPacingFrames(
+                    1, false, false, false, 0.65f, 0.72f, 0.78f));
+            Assert.AreEqual(
+                VelkhanaBrain.ProjectMinimumGroundResetFrames,
+                VelkhanaBrain.ProjectGroundResetPacingFrames(
+                    42, true, true, true, 0.65f, 0.72f, 0.78f));
+            Assert.AreEqual(
+                60,
+                VelkhanaBrain.ProjectGroundResetPacingFrames(
+                    60, false, false, false, 0.65f, 0.72f, 0.78f));
+        }
     }
 }

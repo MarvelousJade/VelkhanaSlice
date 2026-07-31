@@ -50,13 +50,19 @@ namespace VelkhanaSlice.DebugTools
                 string attack = brain.CurrentAttack != null
                     ? $"{brain.CurrentAttack.name} f{brain.AttackFrame}"
                     : "-";
+                string thkTrace = string.IsNullOrEmpty(brain.CurrentThkTrace)
+                    ? "-"
+                    : brain.CurrentThkTrace;
+                string traceKind = brain.IsGroundOpenerSliceActive
+                    ? "opener slice: "
+                    : string.Empty;
                 GUI.Label(new Rect(20f, 76f, 800f, 24f),
                     $"velkhana {brain.CurrentState} f{brain.StateFrame}  {brain.CurrentContext}  " +
                     $"{brain.CombatMode}/{brain.stage}  airborne {brain.IsAirborne}", _label);
-                GUI.Label(new Rect(20f, 102f, 1100f, 24f),
+                GUI.Label(new Rect(20f, 102f, 1500f, 24f),
                     $"boss HP {brain.CurrentHealth:0}/{brain.maxHealth:0}  " +
                     $"enraged {brain.enraged} rage {brain.RageBuild:P0}  " +
-                    $"target {brain.DesiredDistance:0.0}m  {brain.CurrentThkNode}  " +
+                    $"target {brain.DesiredDistance:0.0}m  THK {traceKind}{thkTrace}  " +
                     $"sequence {brain.SequenceStep + 1}/{brain.SequenceLength}  attack {attack}", _label);
 
                 float y = 128f;

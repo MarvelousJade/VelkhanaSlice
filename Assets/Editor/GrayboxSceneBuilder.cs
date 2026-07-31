@@ -885,11 +885,13 @@ namespace VelkhanaSlice.EditorTools
                     7f, 16f, 0f, 100f, 24f, 190,
                     modeWeights: new Vector3(1f, 1.15f, 1f), enragedMultiplier: 1.2f),
 
-                // Global.node_009: back_step_pierce_2 is the rear/flank correction.
+                // Global.node_009 is retained as a Global.node_087 lookup leaf. It does not
+                // independently compete in the flat table and has no invented facing predicate.
                 EmOption(
                     "Global.node_009", moves.BackStepPierce, RangeBand.Close,
-                    0f, 13f, 75f, 180f, 20f, 170,
-                    modeWeights: new Vector3(1f, 1f, 1.15f), enragedMultiplier: 1.2f),
+                    0f, 13f, 0f, 180f, 20f, 170,
+                    modeWeights: new Vector3(1f, 1f, 1.15f), enragedMultiplier: 1.2f,
+                    flatGroundSelection: false),
 
                 // Global.node_020 selects single tail attacks while calm and triple strings enraged.
                 EmOption(
@@ -1054,7 +1056,8 @@ namespace VelkhanaSlice.EditorTools
             bool landAfter = false,
             bool enterAerialChooser = false,
             VelkhanaAirRequirement airRequirement = VelkhanaAirRequirement.Grounded,
-            VelkhanaAerialOptionFamily aerialFamily = VelkhanaAerialOptionFamily.None)
+            VelkhanaAerialOptionFamily aerialFamily = VelkhanaAerialOptionFamily.None,
+            bool flatGroundSelection = true)
         {
             return new MonsterAttackOption
             {
@@ -1075,6 +1078,7 @@ namespace VelkhanaSlice.EditorTools
                 modes = modes,
                 airRequirement = airRequirement,
                 aerialFamily = aerialFamily,
+                useInFlatGroundSelector = flatGroundSelection,
                 mode0WeightMultiplier = modeWeights.x,
                 mode1WeightMultiplier = modeWeights.y,
                 mode2WeightMultiplier = modeWeights.z,

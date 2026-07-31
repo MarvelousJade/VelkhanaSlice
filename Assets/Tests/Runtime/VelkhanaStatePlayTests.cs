@@ -101,8 +101,8 @@ namespace VelkhanaSlice.PlayTests
             try
             {
                 float startingDistance = Vector3.Distance(root.transform.position, hunter.transform.position);
-                yield return new WaitForFixedUpdate();
-                yield return new WaitForFixedUpdate();
+                for (int i = 0; i < VelkhanaBrain.ProjectMinimumGroundResetFrames; i++)
+                    yield return new WaitForFixedUpdate();
 
                 Assert.AreEqual(VelkhanaState.Reposition, brain.CurrentState);
                 Assert.AreEqual(RangeBand.Close, brain.DesiredBand);
@@ -241,7 +241,7 @@ namespace VelkhanaSlice.PlayTests
 
             try
             {
-                int budget = 20;
+                int budget = VelkhanaBrain.ProjectMinimumGroundResetFrames + 20;
                 while (brain.CurrentAttack == null && budget-- > 0)
                     yield return new WaitForFixedUpdate();
 
@@ -254,6 +254,144 @@ namespace VelkhanaSlice.PlayTests
                 Object.DestroyImmediate(hunter);
                 Object.DestroyImmediate(groundAttack);
                 Object.DestroyImmediate(aerialAttack);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator ProjectSeed0CloseFrontUsesSourceOrderedNode105Node087Backstep()
+        {
+            AttackDefinition bite = Attack(3, 1, 5);
+            AttackDefinition rush2 = Attack(3, 1, 5);
+            AttackDefinition backstep = Attack(4, 2, 8);
+            backstep.forwardMotion = AnimationCurve.Linear(0f, 0f, 1f, 1f);
+            backstep.forwardMotionScale = -2.4f;
+
+            VelkhanaBrain brain = Brain(
+                new Vector3(0f, 0f, 2.5f), RangeBand.Close, bite,
+                out GameObject root, out GameObject hunter);
+            brain.options.Clear();
+            brain.options.Add(new MonsterAttackOption
+            {
+                attack = bite,
+                thkNode = "Global.node_004",
+                band = RangeBand.Close,
+                weight = 1f,
+            });
+            brain.options.Add(new MonsterAttackOption
+            {
+                attack = rush2,
+                thkNode = "Global.node_006",
+                band = RangeBand.Close,
+                weight = 1f,
+            });
+            var backstepLeaf = new MonsterAttackOption
+            {
+                attack = backstep,
+                thkNode = "Global.node_009",
+                band = RangeBand.Close,
+                weight = 1f,
+                useInFlatGroundSelector = false,
+                CooldownRemaining = 999,
+            };
+            brain.options.Add(backstepLeaf);
+            // Project RNG seed 0 produces rolls 72 then 81: the decoded source interval selects
+            // Global.node_105, then node_087's <=3 m table selects Global.node_009.
+            brain.selectionSeed = 0;
+
+            try
+            {
+                float startingSeparation =
+                    Vector3.Distance(root.transform.position, hunter.transform.position);
+                int budget =
+                    VelkhanaBrain.ProjectMinimumGroundResetFrames +
+                    backstep.TotalFrames +
+                    40;
+                while (brain.CurrentAttack == null && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+
+                Assert.AreSame(backstep, brain.CurrentAttack);
+                Assert.AreEqual("Global.node_009", brain.CurrentThkNode);
+                Assert.AreEqual(
+                    "Combat_Main.node_002 > Global.node_105 > " +
+                    "Global.node_087 > Global.node_009",
+                    brain.CurrentThkTrace);
+                Assert.IsTrue(brain.IsGroundOpenerSliceActive);
+                Assert.Greater(backstepLeaf.CooldownRemaining, 0,
+                    "node_087 leaf lookup must bypass generic cooldown eligibility");
+                Assert.AreEqual(1, brain.SequenceLength,
+                    "this milestone is the opener leaf only, without N088/N089/N090 followups");
+
+                bool sawRecovery = false;
+                int maximumAttackFrame = brain.AttackFrame;
+                while (brain.CurrentAttack != null && budget-- > 0)
+                {
+                    sawRecovery |= brain.CurrentState == VelkhanaState.Recovery;
+                    maximumAttackFrame = Mathf.Max(maximumAttackFrame, brain.AttackFrame);
+                    yield return new WaitForFixedUpdate();
+                }
+
+                float endingSeparation =
+                    Vector3.Distance(root.transform.position, hunter.transform.position);
+                Assert.IsTrue(sawRecovery,
+                    "the opener leaf must retain the complete AttackDefinition recovery");
+                Assert.GreaterOrEqual(maximumAttackFrame, backstep.TotalFrames - 1);
+                Assert.Greater(endingSeparation, startingSeparation + 1f);
+                Assert.AreEqual(VelkhanaState.Observe, brain.CurrentState);
+                Assert.IsFalse(brain.IsGroundOpenerSliceActive);
+                Assert.IsEmpty(brain.CurrentThkTrace);
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+                Object.DestroyImmediate(hunter);
+                Object.DestroyImmediate(bite);
+                Object.DestroyImmediate(rush2);
+                Object.DestroyImmediate(backstep);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator ProjectSeed124MissFallsThroughAndLookupOnlyNode009StaysFlatDisabled()
+        {
+            AttackDefinition fallback = Attack(3, 1, 5);
+            AttackDefinition backstep = Attack(3, 1, 5);
+            VelkhanaBrain brain = Brain(
+                new Vector3(0f, 0f, 2.5f), RangeBand.Close, fallback,
+                out GameObject root, out GameObject hunter);
+            brain.options[0].thkNode = "Project.flat_fallback";
+            brain.options[0].weight = 1f;
+            brain.options.Insert(0, new MonsterAttackOption
+            {
+                attack = backstep,
+                thkNode = "Global.node_009",
+                band = RangeBand.Close,
+                weight = 10000f,
+                useInFlatGroundSelector = false,
+            });
+            // Project deterministic seed; its first roll is 51 and misses node_002's 60..74
+            // Global.node_105 source interval.
+            brain.selectionSeed = 124;
+
+            try
+            {
+                int budget = VelkhanaBrain.ProjectMinimumGroundResetFrames + 30;
+                while (brain.CurrentAttack == null && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+
+                Assert.AreSame(fallback, brain.CurrentAttack,
+                    "close range alone must not guarantee node_087");
+                Assert.IsFalse(brain.IsGroundOpenerSliceActive);
+                StringAssert.DoesNotContain("Global.node_087", brain.CurrentThkTrace);
+                Assert.AreEqual(
+                    "Combat_Main.node_002 > flat ground selector > Project.flat_fallback",
+                    brain.CurrentThkTrace);
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+                Object.DestroyImmediate(hunter);
+                Object.DestroyImmediate(fallback);
+                Object.DestroyImmediate(backstep);
             }
         }
 

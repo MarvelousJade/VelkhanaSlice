@@ -335,8 +335,19 @@ namespace VelkhanaSlice.PlayTests
             Assert.IsNotEmpty(brain.options, "brain has no attack options");
             Assert.IsNotEmpty(brain.armoredParts, "brain has no armoured parts");
 
+            MonsterAttackOption node009 = null;
             foreach (var option in brain.options)
+            {
                 Assert.IsNotNull(option.attack, "an attack option has no definition");
+                if (option.thkNode == "Global.node_009")
+                    node009 = option;
+            }
+
+            Assert.IsNotNull(node009, "Global.node_009 lookup leaf is missing");
+            Assert.AreEqual(0f, node009.minimumFacingAngle, 0.001f,
+                "node_087 must be able to select the back-step leaf with the hunter in front");
+            Assert.IsFalse(node009.useInFlatGroundSelector,
+                "Global.node_009 must only enter through the decoded node_087 hierarchy");
 
             var presentation = Object.FindFirstObjectByType<VelkhanaPresentation>();
             Assert.IsNotNull(presentation, "no procedural VelkhanaPresentation in the graybox scene");

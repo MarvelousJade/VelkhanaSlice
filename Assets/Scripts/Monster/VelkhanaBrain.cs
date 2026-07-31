@@ -80,6 +80,22 @@ namespace VelkhanaSlice.Monster
         Global052,
     }
 
+    public enum VelkhanaGroundOpenerParent
+    {
+        None,
+        Global105,
+        Global106,
+        Global108,
+    }
+
+    public enum VelkhanaNode087Leaf
+    {
+        None,
+        Global004,
+        Global006,
+        Global009,
+    }
+
     /// <summary>One weighted THK-style action or action sequence.</summary>
     [Serializable]
     public class MonsterAttackOption
@@ -128,6 +144,9 @@ namespace VelkhanaSlice.Monster
         [Tooltip("Combat_Main.node_006 airborne family. None marks ordinary ground options.")]
         public VelkhanaAerialOptionFamily aerialFamily;
 
+        [Tooltip("Participates in the generic weighted ground table. Disable for hierarchical lookup-only leaves.")]
+        public bool useInFlatGroundSelector = true;
+
         public bool calmOnly;
         public bool enragedOnly;
 
@@ -163,6 +182,11 @@ namespace VelkhanaSlice.Monster
     /// </summary>
     public class VelkhanaBrain : MonoBehaviour, IAttacker
     {
+        /// <summary>
+        /// Project-only readability/reset floor. This is not a decoded EM124 timing.
+        /// </summary>
+        public const int ProjectMinimumGroundResetFrames = 24;
+
         [Header("Target")]
         public Transform hunter;
 
@@ -248,6 +272,8 @@ namespace VelkhanaSlice.Monster
         public int SequenceStep { get; private set; }
         public int SequenceLength { get; private set; } = 1;
         public string CurrentThkNode => _activeOption != null ? _activeOption.thkNode : string.Empty;
+        public string CurrentThkTrace { get; private set; } = string.Empty;
+        public bool IsGroundOpenerSliceActive { get; private set; }
         public float CurrentHealth { get; private set; }
         public float HealthFraction => maxHealth <= 0f ? 0f : Mathf.Clamp01(CurrentHealth / maxHealth);
         public float RageBuild => rageDamageThreshold <= 0f
@@ -400,19 +426,23 @@ namespace VelkhanaSlice.Monster
 
             StateFrame++;
 
-            int pacing = stage == ArmorStage.Neutral
-                ? neutralFrames
-                : Mathf.RoundToInt(neutralFrames * poweredPacingMultiplier);
-            if (enraged) pacing = Mathf.RoundToInt(pacing * enragedPacingMultiplier);
-            if (CurrentContext == VelkhanaContext.CriticalHealth)
-                pacing = Mathf.RoundToInt(pacing * criticalPacingMultiplier);
+            int pacing = ProjectGroundResetPacingFrames(
+                neutralFrames,
+                stage != ArmorStage.Neutral,
+                enraged,
+                CurrentContext == VelkhanaContext.CriticalHealth,
+                poweredPacingMultiplier,
+                enragedPacingMultiplier,
+                criticalPacingMultiplier);
 
-            if (StateFrame < Mathf.Max(1, pacing)) return;
+            if (StateFrame < pacing) return;
 
-            MonsterAttackOption picked = Choose();
-            if (picked != null)
+            if (TryChooseGroundDecision(
+                    out MonsterAttackOption picked,
+                    out string thkTrace,
+                    out bool openerSlice))
             {
-                StartOption(picked);
+                StartOption(picked, thkTrace, openerSlice);
                 return;
             }
 
@@ -436,10 +466,12 @@ namespace VelkhanaSlice.Monster
 
             if (StateFrame == 1 || StateFrame % Mathf.Max(1, repositionDecisionIntervalFrames) == 0)
             {
-                MonsterAttackOption picked = Choose();
-                if (picked != null)
+                if (TryChooseGroundDecision(
+                        out MonsterAttackOption picked,
+                        out string thkTrace,
+                        out bool openerSlice))
                 {
-                    StartOption(picked);
+                    StartOption(picked, thkTrace, openerSlice);
                     return;
                 }
 
@@ -464,9 +496,16 @@ namespace VelkhanaSlice.Monster
                 EnterState(VelkhanaState.Observe);
         }
 
-        void StartOption(MonsterAttackOption picked)
+        void StartOption(
+            MonsterAttackOption picked,
+            string thkTrace = null,
+            bool openerSlice = false)
         {
             _activeOption = picked;
+            CurrentThkTrace = string.IsNullOrEmpty(thkTrace)
+                ? DefaultThkTraceFor(picked)
+                : thkTrace;
+            IsGroundOpenerSliceActive = openerSlice;
             _lastUsed = picked;
             picked.CooldownRemaining = Mathf.Max(0, picked.cooldownFrames);
             _followUps = enraged ? picked.enragedFollowUps : picked.calmFollowUps;
@@ -640,6 +679,8 @@ namespace VelkhanaSlice.Monster
         void ClearSequence()
         {
             _activeOption = null;
+            CurrentThkTrace = string.Empty;
+            IsGroundOpenerSliceActive = false;
             _followUps = Array.Empty<AttackDefinition>();
             SequenceStep = 0;
             SequenceLength = 1;
@@ -733,10 +774,49 @@ namespace VelkhanaSlice.Monster
             return Vector3.Distance(transform.position, hunter.position) <= mediumRange;
         }
 
-        MonsterAttackOption Choose()
+        bool TryChooseGroundDecision(
+            out MonsterAttackOption option,
+            out string thkTrace,
+            out bool openerSlice)
+        {
+            option = null;
+            thkTrace = string.Empty;
+            openerSlice = false;
+            if (hunter == null || options.Count == 0 || IsAirborne) return false;
+
+            // Decoded parent pattern: exactly one 0..99 roll decides whether this decision enters
+            // the scoped Global.node_087 opener hierarchy or falls through to the flat table.
+            VelkhanaGroundOpenerParent parent = SelectGroundOpenerParent(
+                CombatMode, enraged, NextSelectionRoll100());
+            if (parent != VelkhanaGroundOpenerParent.None)
+            {
+                float distance = Distance2DToHunter();
+                if (distance <= 13f)
+                {
+                    VelkhanaNode087Leaf leaf =
+                        SelectNode087Leaf(distance, NextSelectionRoll100());
+                    option = FindNode087Leaf(leaf);
+                    if (option != null)
+                    {
+                        thkTrace =
+                            $"{CombatMainModeNodeName(CombatMode)} > " +
+                            $"{GroundOpenerParentNodeName(parent)} > " +
+                            $"Global.node_087 > {option.thkNode}";
+                        openerSlice = true;
+                        return true;
+                    }
+                }
+            }
+
+            option = ChooseFlatGroundOption();
+            if (option == null) return false;
+            thkTrace = DefaultThkTraceFor(option);
+            return true;
+        }
+
+        MonsterAttackOption ChooseFlatGroundOption()
         {
             if (hunter == null || options.Count == 0) return null;
-            if (IsAirborne) return ChooseCombatMainNode006();
 
             float distance = Distance2DToHunter();
             float vertical = Mathf.Abs(hunter.position.y - transform.position.y);
@@ -751,6 +831,7 @@ namespace VelkhanaSlice.Monster
                 MonsterAttackOption option = options[i];
                 if (option == null || option.attack == null) continue;
                 if (option.aerialFamily != VelkhanaAerialOptionFamily.None) continue;
+                if (!option.useInFlatGroundSelector) continue;
                 if (option.CooldownRemaining > 0) continue;
                 if (option.minimumStage > stage) continue;
                 if (option.calmOnly && enraged) continue;
@@ -792,6 +873,74 @@ namespace VelkhanaSlice.Monster
             return null;
         }
 
+        MonsterAttackOption FindNode087Leaf(VelkhanaNode087Leaf leaf)
+        {
+            string node;
+            switch (leaf)
+            {
+                case VelkhanaNode087Leaf.Global004:
+                    node = "Global.node_004";
+                    break;
+                case VelkhanaNode087Leaf.Global006:
+                    node = "Global.node_006";
+                    break;
+                case VelkhanaNode087Leaf.Global009:
+                    node = "Global.node_009";
+                    break;
+                default:
+                    return null;
+            }
+
+            // node_087 is authoritative for its leaf once entered. Lookup deliberately ignores
+            // flat-table conditions, cooldown and history; the selected AttackDefinition still
+            // plays its complete startup, active and recovery timeline through StartOption.
+            for (int i = 0; i < options.Count; i++)
+            {
+                MonsterAttackOption candidate = options[i];
+                if (candidate != null && candidate.attack != null &&
+                    candidate.thkNode == node)
+                    return candidate;
+            }
+
+            return null;
+        }
+
+        string DefaultThkTraceFor(MonsterAttackOption option)
+        {
+            if (option == null) return string.Empty;
+            if (option.aerialFamily != VelkhanaAerialOptionFamily.None)
+                return $"Combat_Main.node_006 > {option.thkNode}";
+            return $"{CombatMainModeNodeName(CombatMode)} > flat ground selector > {option.thkNode}";
+        }
+
+        static string CombatMainModeNodeName(VelkhanaCombatMode mode)
+        {
+            switch (mode)
+            {
+                case VelkhanaCombatMode.Mode1:
+                    return "Combat_Main.node_003";
+                case VelkhanaCombatMode.Mode2:
+                    return "Combat_Main.node_004";
+                default:
+                    return "Combat_Main.node_002";
+            }
+        }
+
+        static string GroundOpenerParentNodeName(VelkhanaGroundOpenerParent parent)
+        {
+            switch (parent)
+            {
+                case VelkhanaGroundOpenerParent.Global105:
+                    return "Global.node_105";
+                case VelkhanaGroundOpenerParent.Global106:
+                    return "Global.node_106";
+                case VelkhanaGroundOpenerParent.Global108:
+                    return "Global.node_108";
+                default:
+                    return string.Empty;
+            }
+        }
+
         MonsterAttackOption ChooseCombatMainNode006()
         {
             int roll = combatMainNode006Predicate101
@@ -826,6 +975,134 @@ namespace VelkhanaSlice.Monster
             return roll0To99 < 50
                 ? VelkhanaAerialOptionFamily.Global051
                 : VelkhanaAerialOptionFamily.Global052;
+        }
+
+        /// <summary>
+        /// Preserves the decoded source-order roll intervals for Global.node_105/106/108 in the
+        /// scoped opener gateway. Rolls belonging to unrelated original branches fall through to
+        /// the project's flat selector; those unrelated branches are not claimed as ported.
+        /// </summary>
+        public static VelkhanaGroundOpenerParent SelectGroundOpenerParent(
+            VelkhanaCombatMode mode,
+            bool isEnraged,
+            int roll0To99)
+        {
+            ValidateRoll100(roll0To99);
+
+            switch (mode)
+            {
+                case VelkhanaCombatMode.Mode1:
+                    if (isEnraged)
+                    {
+                        if (roll0To99 >= 35 && roll0To99 <= 44)
+                            return VelkhanaGroundOpenerParent.Global105;
+                        if (roll0To99 >= 45 && roll0To99 <= 49)
+                            return VelkhanaGroundOpenerParent.Global106;
+                        if (roll0To99 >= 65 && roll0To99 <= 74)
+                            return VelkhanaGroundOpenerParent.Global108;
+                    }
+                    else
+                    {
+                        if (roll0To99 >= 50 && roll0To99 <= 59)
+                            return VelkhanaGroundOpenerParent.Global105;
+                        if (roll0To99 >= 60 && roll0To99 <= 69)
+                            return VelkhanaGroundOpenerParent.Global106;
+                    }
+                    break;
+
+                case VelkhanaCombatMode.Mode2:
+                    if (isEnraged)
+                    {
+                        if (roll0To99 >= 40 && roll0To99 <= 49)
+                            return VelkhanaGroundOpenerParent.Global106;
+                        if (roll0To99 >= 70 && roll0To99 <= 79)
+                            return VelkhanaGroundOpenerParent.Global108;
+                    }
+                    else if (roll0To99 >= 45 && roll0To99 <= 64)
+                    {
+                        return VelkhanaGroundOpenerParent.Global106;
+                    }
+                    break;
+
+                default:
+                    if (isEnraged)
+                    {
+                        if (roll0To99 >= 55 && roll0To99 <= 64)
+                            return VelkhanaGroundOpenerParent.Global105;
+                        if (roll0To99 >= 75 && roll0To99 <= 79)
+                            return VelkhanaGroundOpenerParent.Global108;
+                    }
+                    else if (roll0To99 >= 60 && roll0To99 <= 74)
+                    {
+                        return VelkhanaGroundOpenerParent.Global105;
+                    }
+                    break;
+            }
+
+            return VelkhanaGroundOpenerParent.None;
+        }
+
+        public static VelkhanaNode087Leaf SelectNode087Leaf(
+            float distanceMetres,
+            int roll0To99)
+        {
+            ValidateRoll100(roll0To99);
+            distanceMetres = Mathf.Max(0f, distanceMetres);
+
+            if (distanceMetres <= 3f)
+                return roll0To99 < 20
+                    ? VelkhanaNode087Leaf.Global004
+                    : VelkhanaNode087Leaf.Global009;
+
+            if (distanceMetres <= 7f)
+            {
+                if (roll0To99 < 50) return VelkhanaNode087Leaf.Global004;
+                if (roll0To99 < 75) return VelkhanaNode087Leaf.Global006;
+                return VelkhanaNode087Leaf.Global009;
+            }
+
+            if (distanceMetres <= 13f)
+                return roll0To99 < 20
+                    ? VelkhanaNode087Leaf.Global004
+                    : VelkhanaNode087Leaf.Global006;
+
+            return VelkhanaNode087Leaf.None;
+        }
+
+        static void ValidateRoll100(int roll0To99)
+        {
+            if (roll0To99 < 0 || roll0To99 > 99)
+                throw new ArgumentOutOfRangeException(
+                    nameof(roll0To99), "Expected a roll from 0 through 99.");
+        }
+
+        /// <summary>
+        /// Applies the demo's pacing multipliers, then enforces a project-only readability/reset
+        /// floor. The floor is not a decoded or original EM124 timing.
+        /// </summary>
+        public static int ProjectGroundResetPacingFrames(
+            int baseFrames,
+            bool powered,
+            bool isEnraged,
+            bool criticalHealth,
+            float poweredMultiplier,
+            float enragedMultiplier,
+            float criticalMultiplier)
+        {
+            int pacing = Mathf.Max(1, baseFrames);
+            if (powered)
+                pacing = Mathf.RoundToInt(pacing * Mathf.Max(0f, poweredMultiplier));
+            if (isEnraged)
+                pacing = Mathf.RoundToInt(pacing * Mathf.Max(0f, enragedMultiplier));
+            if (criticalHealth)
+                pacing = Mathf.RoundToInt(pacing * Mathf.Max(0f, criticalMultiplier));
+            return Mathf.Max(ProjectMinimumGroundResetFrames, pacing);
+        }
+
+        int NextSelectionRoll100()
+        {
+            return Mathf.Clamp(
+                Mathf.FloorToInt(NextSelectionValue() * 100f), 0, 99);
         }
 
         float NextSelectionValue()
@@ -868,6 +1145,7 @@ namespace VelkhanaSlice.Monster
                     MonsterAttackOption option = options[i];
                     if (option == null || option.attack == null || option.minimumStage > stage)
                         continue;
+                    if (!option.useInFlatGroundSelector) continue;
                     if (option.calmOnly && enraged) continue;
                     if (option.enragedOnly && !enraged) continue;
                     if (option.airRequirement == VelkhanaAirRequirement.Airborne &&
