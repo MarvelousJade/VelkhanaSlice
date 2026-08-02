@@ -142,6 +142,58 @@ namespace VelkhanaSlice.PlayTests
             Assert.IsTrue(hunter.WeaponDrawn);
         }
 
+        [UnityTest]
+        public IEnumerator AttackMovementInputSteersRootMotionUntilTrackingCutoffWithoutAddingDistance()
+        {
+            var hunter = MakeHunter(out var root);
+            try
+            {
+                hunter.turnDegreesPerSecond = 36000f;
+                hunter.wideSlash.forwardMotion = AnimationCurve.Linear(0f, 0f, 1f, 1f);
+                hunter.wideSlash.forwardMotionScale = 2f;
+                hunter.wideSlash.trackingCutoffFrame = 2;
+
+                yield return DrawWeapon(hunter);
+                yield return Step(secondary: true);
+                Assert.AreEqual(HunterController.State.Attacking, hunter.CurrentState);
+                Assert.AreSame(hunter.wideSlash, hunter.CurrentAttack);
+
+                Vector3 start = root.transform.position;
+                yield return Step(move: Vector2.right);
+
+                Assert.Greater(root.transform.position.x, start.x,
+                    "held direction should steer the attack's authored forward step");
+                Assert.Less(Vector3.Angle(Vector3.right, root.transform.forward), 0.1f);
+
+                yield return Step(move: Vector2.right);
+                Assert.AreEqual(hunter.wideSlash.trackingCutoffFrame, hunter.AttackFrame);
+                Vector3 committedHeading = root.transform.forward;
+
+                // Once the cutoff is reached, changing the stick cannot turn or redirect the
+                // remaining root motion. It also must not add free analog displacement.
+                yield return Step(move: Vector2.up);
+                yield return Step(move: Vector2.up);
+
+                Assert.AreEqual(HunterController.State.Free, hunter.CurrentState);
+                Assert.Less(Vector3.Angle(committedHeading, root.transform.forward), 0.1f);
+
+                Vector3 displacement = root.transform.position - start;
+                Vector2 horizontal = new Vector2(displacement.x, displacement.z);
+                Assert.AreEqual(
+                    hunter.wideSlash.forwardMotionScale,
+                    horizontal.magnitude,
+                    0.05f,
+                    "analog input selects heading but the authored root-motion scale owns distance");
+                Assert.Greater(displacement.x, 1.95f);
+                Assert.AreEqual(0f, displacement.z, 0.05f,
+                    "post-cutoff input must not redirect the committed attack");
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+            }
+        }
+
         IEnumerator CompleteMovingDrawOvercharge(HunterController hunter)
         {
             yield return Step(primary: true, move: Vector2.up);

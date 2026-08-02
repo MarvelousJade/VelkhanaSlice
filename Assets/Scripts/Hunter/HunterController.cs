@@ -541,7 +541,10 @@ namespace VelkhanaSlice.Hunter
                 return;
             }
 
-            if (attack.CanTrack(AttackFrame)) FaceDirection(_aimDirection);
+            // WP00 attacks do not permit free analog walking. During the authored tracking window,
+            // directional input only selects the heading for the attack's own forward motion; once
+            // tracking closes, both facing and the root-motion trajectory stay committed.
+            if (attack.CanTrack(AttackFrame)) FaceMoveOrAim();
 
             float step = attack.ForwardStep(AttackFrame);
             if (!Mathf.Approximately(step, 0f))
