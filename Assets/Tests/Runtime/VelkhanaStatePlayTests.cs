@@ -277,13 +277,15 @@ namespace VelkhanaSlice.PlayTests
                 band = RangeBand.Close,
                 weight = 1f,
             });
-            brain.options.Add(new MonsterAttackOption
+            var rush2Leaf = new MonsterAttackOption
             {
                 attack = rush2,
                 thkNode = "Global.node_006",
                 band = RangeBand.Close,
                 weight = 1f,
-            });
+                CooldownRemaining = 999,
+            };
+            brain.options.Add(rush2Leaf);
             var backstepLeaf = new MonsterAttackOption
             {
                 attack = backstep,
@@ -319,11 +321,11 @@ namespace VelkhanaSlice.PlayTests
                 Assert.Greater(backstepLeaf.CooldownRemaining, 0,
                     "node_087 leaf lookup must bypass generic cooldown eligibility");
                 Assert.AreEqual(1, brain.SequenceLength,
-                    "this milestone is the opener leaf only, without N088/N089/N090 followups");
+                    "the deferred continuation is not counted until the post-motion branch resolves");
 
                 bool sawRecovery = false;
                 int maximumAttackFrame = brain.AttackFrame;
-                while (brain.CurrentAttack != null && budget-- > 0)
+                while (brain.CurrentAttack == backstep && budget-- > 0)
                 {
                     sawRecovery |= brain.CurrentState == VelkhanaState.Recovery;
                     maximumAttackFrame = Mathf.Max(maximumAttackFrame, brain.AttackFrame);
@@ -336,8 +338,354 @@ namespace VelkhanaSlice.PlayTests
                     "the opener leaf must retain the complete AttackDefinition recovery");
                 Assert.GreaterOrEqual(maximumAttackFrame, backstep.TotalFrames - 1);
                 Assert.Greater(endingSeparation, startingSeparation + 1f);
+                Assert.AreSame(rush2, brain.CurrentAttack,
+                    "seed 0's third roll is 76, so node_088 selects node_006");
+                Assert.AreEqual(1, brain.SequenceStep);
+                Assert.AreEqual(2, brain.SequenceLength);
+                Assert.AreEqual("Global.node_006", brain.CurrentThkNode);
+                Assert.AreEqual(
+                    "Combat_Main.node_002 > Global.node_105 > " +
+                    "Global.node_087 > Global.node_009 > Global.node_088 > " +
+                    "Global.node_076 > Global.node_006",
+                    brain.CurrentThkTrace);
+                Assert.Greater(rush2Leaf.CooldownRemaining, 0,
+                    "authoritative continuation lookup must bypass generic cooldown eligibility");
+
+                while (brain.CurrentAttack != null && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+
                 Assert.AreEqual(VelkhanaState.Observe, brain.CurrentState);
                 Assert.IsFalse(brain.IsGroundOpenerSliceActive);
+                Assert.IsEmpty(brain.CurrentThkNode);
+                Assert.IsEmpty(brain.CurrentThkTrace);
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+                Object.DestroyImmediate(hunter);
+                Object.DestroyImmediate(bite);
+                Object.DestroyImmediate(rush2);
+                Object.DestroyImmediate(backstep);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator Node089UsesPostOpenerDistanceAfterCompleteRecovery()
+        {
+            AttackDefinition bite = Attack(3, 1, 5);
+            AttackDefinition rush2 = Attack(4, 2, 8);
+            rush2.forwardMotion = AnimationCurve.Linear(0f, 0f, 1f, 1f);
+            rush2.forwardMotionScale = 4f;
+            AttackDefinition backstep = Attack(3, 1, 5);
+
+            VelkhanaBrain brain = Brain(
+                new Vector3(0f, 0f, 12f), RangeBand.Medium, rush2,
+                out GameObject root, out GameObject hunter);
+            brain.options.Clear();
+            brain.options.Add(new MonsterAttackOption
+            {
+                attack = bite,
+                thkNode = "Global.node_004",
+                band = RangeBand.Close,
+                weight = 1f,
+            });
+            brain.options.Add(new MonsterAttackOption
+            {
+                attack = rush2,
+                thkNode = "Global.node_006",
+                band = RangeBand.Medium,
+                weight = 1f,
+            });
+            var backstepLeaf = new MonsterAttackOption
+            {
+                attack = backstep,
+                thkNode = "Global.node_009",
+                band = RangeBand.Close,
+                weight = 1f,
+                useInFlatGroundSelector = false,
+                CooldownRemaining = 999,
+            };
+            brain.options.Add(backstepLeaf);
+            // Rolls 72/81 select node_105 > node_087 > node_006 at 12 m. The third roll is 76:
+            // it selects node_009 only after the rush has moved the post-motion distance below 9 m.
+            brain.selectionSeed = 0;
+
+            try
+            {
+                int budget = VelkhanaBrain.ProjectMinimumGroundResetFrames +
+                             rush2.TotalFrames + backstep.TotalFrames + 50;
+                while (brain.CurrentAttack == null && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+
+                Assert.AreSame(rush2, brain.CurrentAttack);
+                Assert.Greater(
+                    Vector3.Distance(root.transform.position, hunter.transform.position), 9f,
+                    "the opener must begin in node_089's outer <=13 m tier");
+
+                bool sawRecovery = false;
+                int maximumOpenerFrame = brain.AttackFrame;
+                while (brain.CurrentAttack == rush2 && budget-- > 0)
+                {
+                    sawRecovery |= brain.CurrentState == VelkhanaState.Recovery;
+                    maximumOpenerFrame = Mathf.Max(maximumOpenerFrame, brain.AttackFrame);
+                    yield return new WaitForFixedUpdate();
+                }
+
+                float postMotionDistance =
+                    Vector3.Distance(root.transform.position, hunter.transform.position);
+                Assert.IsTrue(sawRecovery);
+                Assert.GreaterOrEqual(maximumOpenerFrame, rush2.TotalFrames - 1,
+                    "continuation selection must wait for the opener's complete recovery");
+                Assert.LessOrEqual(postMotionDistance, 9f,
+                    "the finished rush must move selection into node_089's <=9 m tier");
+                Assert.AreSame(backstep, brain.CurrentAttack,
+                    "roll 76 selects node_009 in the <=9 m table, not node_004 from the old 12 m tier");
+                Assert.AreEqual("Global.node_009", brain.CurrentThkNode);
+                Assert.AreEqual(1, brain.SequenceStep);
+                Assert.AreEqual(2, brain.SequenceLength);
+                Assert.AreEqual(
+                    "Combat_Main.node_002 > Global.node_105 > " +
+                    "Global.node_087 > Global.node_006 > Global.node_089 > " +
+                    "Global.node_076 > Global.node_009",
+                    brain.CurrentThkTrace);
+                Assert.Greater(backstepLeaf.CooldownRemaining, 0,
+                    "decoded continuation lookup bypasses cooldown eligibility");
+
+                while (brain.CurrentAttack != null && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+
+                Assert.AreEqual(VelkhanaState.Observe, brain.CurrentState);
+                Assert.IsFalse(brain.IsGroundOpenerSliceActive);
+                Assert.IsEmpty(brain.CurrentThkNode);
+                Assert.IsEmpty(brain.CurrentThkTrace);
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+                Object.DestroyImmediate(hunter);
+                Object.DestroyImmediate(bite);
+                Object.DestroyImmediate(rush2);
+                Object.DestroyImmediate(backstep);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator Node089TerminatesCleanlyWhenOpenerMovesBeyondThirteenMetres()
+        {
+            AttackDefinition bite = Attack(3, 1, 5);
+            AttackDefinition rushAway = Attack(4, 2, 8);
+            rushAway.forwardMotion = AnimationCurve.Linear(0f, 0f, 1f, 1f);
+            rushAway.forwardMotionScale = -2.5f;
+            AttackDefinition backstep = Attack(3, 1, 5);
+
+            VelkhanaBrain brain = Brain(
+                new Vector3(0f, 0f, 12f), RangeBand.Medium, rushAway,
+                out GameObject root, out GameObject hunter);
+            brain.options.Clear();
+            brain.options.Add(new MonsterAttackOption
+            {
+                attack = bite,
+                thkNode = "Global.node_004",
+                band = RangeBand.Close,
+                weight = 1f,
+            });
+            brain.options.Add(new MonsterAttackOption
+            {
+                attack = rushAway,
+                thkNode = "Global.node_006",
+                band = RangeBand.Medium,
+                weight = 1f,
+            });
+            brain.options.Add(new MonsterAttackOption
+            {
+                attack = backstep,
+                thkNode = "Global.node_009",
+                band = RangeBand.Close,
+                weight = 1f,
+                useInFlatGroundSelector = false,
+            });
+            brain.selectionSeed = 0;
+
+            try
+            {
+                int budget = VelkhanaBrain.ProjectMinimumGroundResetFrames +
+                             rushAway.TotalFrames + 30;
+                while (brain.CurrentAttack == null && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+
+                Assert.AreSame(rushAway, brain.CurrentAttack);
+                int maximumOpenerFrame = brain.AttackFrame;
+                while (brain.CurrentAttack != null && budget-- > 0)
+                {
+                    maximumOpenerFrame = Mathf.Max(maximumOpenerFrame, brain.AttackFrame);
+                    yield return new WaitForFixedUpdate();
+                }
+
+                Assert.GreaterOrEqual(maximumOpenerFrame, rushAway.TotalFrames - 1);
+                Assert.Greater(
+                    Vector3.Distance(root.transform.position, hunter.transform.position), 13f);
+                Assert.IsNull(brain.CurrentAttack,
+                    "node_089's >13 m branch must not start a continuation action");
+                Assert.AreEqual(VelkhanaState.Observe, brain.CurrentState);
+                Assert.AreEqual(1, brain.SequenceLength);
+                Assert.AreEqual(0, brain.SequenceStep);
+                Assert.IsFalse(brain.IsGroundOpenerSliceActive);
+                Assert.IsEmpty(brain.CurrentThkNode);
+                Assert.IsEmpty(brain.CurrentThkTrace);
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+                Object.DestroyImmediate(hunter);
+                Object.DestroyImmediate(bite);
+                Object.DestroyImmediate(rushAway);
+                Object.DestroyImmediate(backstep);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator Node090OuterTierIgnoresGenericOpenerRangeInterrupt()
+        {
+            AttackDefinition bite = Attack(3, 1, 5);
+            AttackDefinition rush2 = Attack(3, 1, 5);
+            AttackDefinition backstep = Attack(3, 1, 5);
+            VelkhanaBrain brain = Brain(
+                new Vector3(0f, 0f, 12f), RangeBand.Medium, bite,
+                out GameObject root, out GameObject hunter);
+            brain.options.Clear();
+            var biteLeaf = new MonsterAttackOption
+            {
+                attack = bite,
+                thkNode = "Global.node_004",
+                band = RangeBand.Close,
+                weight = 1f,
+                maximumDistance = 7f,
+            };
+            brain.options.Add(biteLeaf);
+            brain.options.Add(new MonsterAttackOption
+            {
+                attack = rush2,
+                thkNode = "Global.node_006",
+                band = RangeBand.Medium,
+                weight = 1f,
+            });
+            brain.options.Add(new MonsterAttackOption
+            {
+                attack = backstep,
+                thkNode = "Global.node_009",
+                band = RangeBand.Close,
+                weight = 1f,
+                useInFlatGroundSelector = false,
+            });
+            // Rolls 67/11 select node_004 at 12 m; node_090's third roll is consumed by its
+            // <=13 m random block and selects node_004 with 100% source weight in this outer tier.
+            brain.selectionSeed = 243;
+
+            try
+            {
+                int budget = VelkhanaBrain.ProjectMinimumGroundResetFrames +
+                             bite.TotalFrames * 2 + 30;
+                while (brain.CurrentAttack == null && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+
+                Assert.AreSame(bite, brain.CurrentAttack);
+                Assert.AreEqual(0, brain.SequenceStep);
+                while (brain.SequenceStep == 0 && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+
+                Assert.AreEqual(12f,
+                    Vector3.Distance(root.transform.position, hunter.transform.position), 0.01f);
+                Assert.AreEqual(1, brain.SequenceStep,
+                    "node_090 must use its decoded outer tier without node_328's range approximation");
+                Assert.AreSame(bite, brain.CurrentAttack);
+                Assert.AreEqual(0, brain.AttackFrame);
+                Assert.AreEqual(2, brain.SequenceLength);
+                Assert.AreEqual(
+                    "Combat_Main.node_002 > Global.node_105 > " +
+                    "Global.node_087 > Global.node_004 > Global.node_090 > " +
+                    "Global.node_076 > Global.node_004",
+                    brain.CurrentThkTrace);
+                Assert.Greater(biteLeaf.CooldownRemaining, 0,
+                    "the authoritative repeated leaf must bypass its own active cooldown");
+
+                while (brain.CurrentAttack != null && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+
+                Assert.AreEqual(VelkhanaState.Observe, brain.CurrentState);
+                Assert.IsEmpty(brain.CurrentThkTrace);
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+                Object.DestroyImmediate(hunter);
+                Object.DestroyImmediate(bite);
+                Object.DestroyImmediate(rush2);
+                Object.DestroyImmediate(backstep);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator Node090ConsumesNode079NearArenaRollAndTracesBothNodes()
+        {
+            AttackDefinition bite = Attack(3, 1, 5);
+            AttackDefinition rush2 = Attack(3, 1, 5);
+            AttackDefinition backstep = Attack(3, 1, 5);
+            VelkhanaBrain brain = Brain(
+                new Vector3(0f, 0f, 2.5f), RangeBand.Close, bite,
+                out GameObject root, out GameObject hunter);
+            brain.options.Clear();
+            brain.options.Add(new MonsterAttackOption
+            {
+                attack = bite,
+                thkNode = "Global.node_004",
+                band = RangeBand.Close,
+                weight = 1f,
+            });
+            var rush2Leaf = new MonsterAttackOption
+            {
+                attack = rush2,
+                thkNode = "Global.node_006",
+                band = RangeBand.Medium,
+                weight = 1f,
+                CooldownRemaining = 999,
+            };
+            brain.options.Add(rush2Leaf);
+            brain.options.Add(new MonsterAttackOption
+            {
+                attack = backstep,
+                thkNode = "Global.node_009",
+                band = RangeBand.Close,
+                weight = 1f,
+                useInFlatGroundSelector = false,
+            });
+            // Seed 243 rolls 67/11/62/42: node_105, node_004, node_079, then node_006.
+            brain.selectionSeed = 243;
+
+            try
+            {
+                int budget = VelkhanaBrain.ProjectMinimumGroundResetFrames +
+                             bite.TotalFrames + rush2.TotalFrames + 30;
+                while (brain.CurrentAttack != bite && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+
+                Assert.AreSame(bite, brain.CurrentAttack);
+                while (brain.CurrentAttack == bite && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+
+                Assert.AreSame(rush2, brain.CurrentAttack,
+                    "node_079's separate near-arena roll 42 must select node_006");
+                Assert.AreEqual("Global.node_006", brain.CurrentThkNode);
+                Assert.AreEqual(
+                    "Combat_Main.node_002 > Global.node_105 > " +
+                    "Global.node_087 > Global.node_004 > Global.node_090 > " +
+                    "Global.node_076 > Global.node_079 > Global.node_006",
+                    brain.CurrentThkTrace);
+                Assert.Greater(rush2Leaf.CooldownRemaining, 0);
+
+                while (brain.CurrentAttack != null && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+
+                Assert.AreEqual(VelkhanaState.Observe, brain.CurrentState);
                 Assert.IsEmpty(brain.CurrentThkTrace);
             }
             finally

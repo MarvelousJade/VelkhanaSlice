@@ -210,6 +210,117 @@ namespace VelkhanaSlice.Tests
             Assert.AreEqual(expected, VelkhanaBrain.SelectNode087Leaf(distance, roll));
         }
 
+        [TestCase(VelkhanaNode087Leaf.Global009, VelkhanaGroundContinuationNode.Global088)]
+        [TestCase(VelkhanaNode087Leaf.Global006, VelkhanaGroundContinuationNode.Global089)]
+        [TestCase(VelkhanaNode087Leaf.Global004, VelkhanaGroundContinuationNode.Global090)]
+        [TestCase(VelkhanaNode087Leaf.None, VelkhanaGroundContinuationNode.None)]
+        public void Node087LeafMapsToItsDecodedContinuation(
+            VelkhanaNode087Leaf opener,
+            VelkhanaGroundContinuationNode expected)
+        {
+            Assert.AreEqual(expected, VelkhanaBrain.ContinuationNodeFor(opener));
+        }
+
+        [TestCase(VelkhanaNode087Leaf.Global009, 3f, 64,
+            VelkhanaGroundContinuationTarget.Global004)]
+        [TestCase(VelkhanaNode087Leaf.Global009, 3.001f, 65,
+            VelkhanaGroundContinuationTarget.Global006)]
+        [TestCase(VelkhanaNode087Leaf.Global009, 9f, 64,
+            VelkhanaGroundContinuationTarget.Global004)]
+        [TestCase(VelkhanaNode087Leaf.Global009, 9.001f, 65,
+            VelkhanaGroundContinuationTarget.Global006)]
+        [TestCase(VelkhanaNode087Leaf.Global009, 13f, 65,
+            VelkhanaGroundContinuationTarget.Global006)]
+        [TestCase(VelkhanaNode087Leaf.Global009, 13.001f, -1,
+            VelkhanaGroundContinuationTarget.None)]
+        [TestCase(VelkhanaNode087Leaf.Global006, 3f, 64,
+            VelkhanaGroundContinuationTarget.Global004)]
+        [TestCase(VelkhanaNode087Leaf.Global006, 3.001f, 65,
+            VelkhanaGroundContinuationTarget.Global009)]
+        [TestCase(VelkhanaNode087Leaf.Global006, 9f, 65,
+            VelkhanaGroundContinuationTarget.Global009)]
+        [TestCase(VelkhanaNode087Leaf.Global006, 9.001f, 99,
+            VelkhanaGroundContinuationTarget.Global004)]
+        [TestCase(VelkhanaNode087Leaf.Global006, 13f, 99,
+            VelkhanaGroundContinuationTarget.Global004)]
+        [TestCase(VelkhanaNode087Leaf.Global006, 13.001f, 100,
+            VelkhanaGroundContinuationTarget.None)]
+        [TestCase(VelkhanaNode087Leaf.Global004, 3f, 49,
+            VelkhanaGroundContinuationTarget.Global004)]
+        [TestCase(VelkhanaNode087Leaf.Global004, 3.001f, 50,
+            VelkhanaGroundContinuationTarget.Global079)]
+        [TestCase(VelkhanaNode087Leaf.Global004, 9f, 50,
+            VelkhanaGroundContinuationTarget.Global079)]
+        [TestCase(VelkhanaNode087Leaf.Global004, 9.001f, 99,
+            VelkhanaGroundContinuationTarget.Global004)]
+        [TestCase(VelkhanaNode087Leaf.Global004, 13f, 99,
+            VelkhanaGroundContinuationTarget.Global004)]
+        [TestCase(VelkhanaNode087Leaf.Global004, 13.001f, -1,
+            VelkhanaGroundContinuationTarget.None)]
+        public void GroundOpenerContinuationUsesPostMotionDistanceAndExactRollBoundaries(
+            VelkhanaNode087Leaf opener,
+            float postMotionDistance,
+            int roll,
+            VelkhanaGroundContinuationTarget expected)
+        {
+            Assert.AreEqual(
+                expected,
+                VelkhanaBrain.SelectGroundOpenerContinuation(
+                    opener, postMotionDistance, roll));
+        }
+
+        [Test]
+        public void GroundOpenerContinuationValidatesOnlyDecodedRandomBlocks()
+        {
+            Assert.Throws<System.ArgumentOutOfRangeException>(() =>
+                VelkhanaBrain.SelectGroundOpenerContinuation(
+                    VelkhanaNode087Leaf.Global009, 13f, -1));
+            Assert.Throws<System.ArgumentOutOfRangeException>(() =>
+                VelkhanaBrain.SelectGroundOpenerContinuation(
+                    VelkhanaNode087Leaf.Global004, 3f, 100));
+            Assert.DoesNotThrow(() =>
+                VelkhanaBrain.SelectGroundOpenerContinuation(
+                    VelkhanaNode087Leaf.Global009, 13.001f, -1),
+                "the >13 m source branch has no random block");
+        }
+
+        [TestCase(49, VelkhanaNode087Leaf.Global006)]
+        [TestCase(50, VelkhanaNode087Leaf.Global009)]
+        public void GlobalNode079NearArenaCenterUsesExactFiftyFiftyBoundary(
+            int roll,
+            VelkhanaNode087Leaf expected)
+        {
+            Assert.AreEqual(expected, VelkhanaBrain.SelectNode079NearLeaf(roll));
+        }
+
+        [TestCase(true, true, VelkhanaNode087Leaf.Global006)]
+        [TestCase(true, false, VelkhanaNode087Leaf.Global009)]
+        [TestCase(false, true, VelkhanaNode087Leaf.Global009)]
+        [TestCase(false, false, VelkhanaNode087Leaf.Global006)]
+        public void GlobalNode079BeyondArenaCenterGateUsesSectorParityWithoutRng(
+            bool arenaCenterInSector,
+            bool hunterInSector,
+            VelkhanaNode087Leaf expected)
+        {
+            Assert.AreEqual(
+                expected,
+                VelkhanaBrain.SelectNode079FarLeaf(
+                    arenaCenterInSector, hunterInSector));
+        }
+
+        [Test]
+        public void GlobalNode079ClockwiseSectorWrapsInclusivelyFrom270Through90()
+        {
+            Assert.IsTrue(VelkhanaBrain.DirectionIsInClockwiseSector270To90(
+                Vector3.forward, Vector3.right));
+            Assert.IsTrue(VelkhanaBrain.DirectionIsInClockwiseSector270To90(
+                Vector3.forward, Vector3.left));
+            Assert.IsTrue(VelkhanaBrain.DirectionIsInClockwiseSector270To90(
+                Vector3.forward, Vector3.forward));
+            Assert.IsFalse(VelkhanaBrain.DirectionIsInClockwiseSector270To90(
+                Vector3.forward, Vector3.back));
+        }
+
         [Test]
         public void ProjectGroundResetPacingNeverDropsBelowReadabilityFloor()
         {

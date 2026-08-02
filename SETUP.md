@@ -58,6 +58,15 @@ them to the visible neutral/ice-stage presentation, but deliberately does not re
 or claim its engine meaning has been proven. The HUD displays context, mode, source node, range
 target and sequence step so the decision can be audited while playing.
 
+The scoped close opener preserves the source-order `Global.node_105/106/108` gateway and
+`Global.node_087` distance/random tables. After the selected 004/006/009 opener finishes its full
+startup, active and recovery timeline, its post-motion distance drives `Global.node_090/089/088`
+respectively. Those continuations retain the decoded `Global.node_076` call as an explicit no-op
+hook because the focused arena is non-AT and does not model target 44, helpless-target predicates,
+or the no-argument `function#101()`. `Global.node_079` targets `arenaCenter` before comparing its
+5 m distance/clockwise sector, then retargets the sole hunter; only its near-center random block
+consumes another RNG value.
+
 Multi-action patterns are data sequences. For example the aerial `Global.node_063` placeholder
 takes off, plays vertical breath and ice-wave steps with a target/arena interrupt pass between
 them, dives with a tail sting, then lands. Damage fills a rage threshold, entering a visible roar

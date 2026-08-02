@@ -96,6 +96,23 @@ namespace VelkhanaSlice.Monster
         Global009,
     }
 
+    public enum VelkhanaGroundContinuationNode
+    {
+        None,
+        Global088,
+        Global089,
+        Global090,
+    }
+
+    public enum VelkhanaGroundContinuationTarget
+    {
+        None,
+        Global004,
+        Global006,
+        Global009,
+        Global079,
+    }
+
     /// <summary>One weighted THK-style action or action sequence.</summary>
     [Serializable]
     public class MonsterAttackOption
@@ -271,7 +288,7 @@ namespace VelkhanaSlice.Monster
         public bool IsAirborne { get; private set; }
         public int SequenceStep { get; private set; }
         public int SequenceLength { get; private set; } = 1;
-        public string CurrentThkNode => _activeOption != null ? _activeOption.thkNode : string.Empty;
+        public string CurrentThkNode { get; private set; } = string.Empty;
         public string CurrentThkTrace { get; private set; } = string.Empty;
         public bool IsGroundOpenerSliceActive { get; private set; }
         public float CurrentHealth { get; private set; }
@@ -298,6 +315,7 @@ namespace VelkhanaSlice.Monster
         MonsterAttackOption _pendingTakeoffOption;
         AttackDefinition[] _followUps = Array.Empty<AttackDefinition>();
         MonsterAttackOption _lastUsed;
+        VelkhanaNode087Leaf _groundOpenerLeaf;
         readonly Queue<MonsterAttackOption> _recentOptions = new Queue<MonsterAttackOption>(3);
         Vector3 _committedAimDirection;
         System.Random _random;
@@ -506,6 +524,10 @@ namespace VelkhanaSlice.Monster
                 ? DefaultThkTraceFor(picked)
                 : thkTrace;
             IsGroundOpenerSliceActive = openerSlice;
+            CurrentThkNode = picked != null ? picked.thkNode : string.Empty;
+            _groundOpenerLeaf = openerSlice
+                ? Node087LeafForNodeName(CurrentThkNode)
+                : VelkhanaNode087Leaf.None;
             _lastUsed = picked;
             picked.CooldownRemaining = Mathf.Max(0, picked.cooldownFrames);
             _followUps = enraged ? picked.enragedFollowUps : picked.calmFollowUps;
@@ -630,6 +652,13 @@ namespace VelkhanaSlice.Monster
             if (CurrentAttack.IsHitActive(AttackFrame)) CheckHunterHit(CurrentAttack);
             if (++AttackFrame < CurrentAttack.TotalFrames) return;
 
+            if (IsGroundOpenerSliceActive && SequenceStep == 0)
+            {
+                if (TryStartGroundOpenerContinuation()) return;
+                FinishSequence();
+                return;
+            }
+
             int nextIndex = SequenceStep;
             if (nextIndex < _followUps.Length && CanContinueSequence())
             {
@@ -658,6 +687,76 @@ namespace VelkhanaSlice.Monster
             return arenaOffset.sqrMagnitude <= arenaRadius * arenaRadius * 1.35f;
         }
 
+        bool TryStartGroundOpenerContinuation()
+        {
+            if (!GroundOpenerTargetIsValid()) return false;
+
+            float postMotionDistance = Distance2DToHunter();
+            if (postMotionDistance > 13f) return false;
+
+            VelkhanaGroundContinuationNode continuationNode =
+                ContinuationNodeFor(_groundOpenerLeaf);
+            VelkhanaGroundContinuationTarget target = SelectGroundOpenerContinuation(
+                _groundOpenerLeaf, postMotionDistance, NextSelectionRoll100());
+
+            bool throughNode079 = target == VelkhanaGroundContinuationTarget.Global079;
+            VelkhanaNode087Leaf selectedLeaf;
+            if (throughNode079)
+            {
+                Vector3 toArenaCenter = arenaCenter - transform.position;
+                toArenaCenter.y = 0f;
+                float distanceToArenaCenter = toArenaCenter.magnitude;
+
+                if (distanceToArenaCenter <= 5f)
+                {
+                    // node_079's targetEnemy(50) retargets to this demo's sole hunter. The numeric
+                    // argument is not treated as a probability; only the following random block
+                    // consumes an RNG value.
+                    selectedLeaf = SelectNode079NearLeaf(NextSelectionRoll100());
+                }
+                else
+                {
+                    Vector3 toHunter = hunter.position - transform.position;
+                    toHunter.y = 0f;
+                    selectedLeaf = SelectNode079FarLeaf(
+                        DirectionIsInClockwiseSector270To90(transform.forward, toArenaCenter),
+                        DirectionIsInClockwiseSector270To90(transform.forward, toHunter));
+                }
+            }
+            else
+            {
+                selectedLeaf = ContinuationTargetToLeaf(target);
+            }
+
+            MonsterAttackOption selected = FindNode087Leaf(selectedLeaf);
+            if (selected == null) return false;
+
+            // Every node_088/089/090 path invokes node_076 before its action selector. The focused
+            // demo is explicitly non-AT and does not model target(44), helpless predicates, or the
+            // no-argument function#101(), so node_076 is retained as a conservative traceable no-op.
+            string node079Trace = throughNode079 ? " > Global.node_079" : string.Empty;
+            CurrentThkTrace +=
+                $" > {GroundContinuationNodeName(continuationNode)} > " +
+                $"Global.node_076{node079Trace} > {selected.thkNode}";
+            CurrentThkNode = selected.thkNode;
+            SequenceStep = 1;
+            SequenceLength = 2;
+            StartAttackStep(selected.attack);
+            return true;
+        }
+
+        bool GroundOpenerTargetIsValid()
+        {
+            if (hunter == null) return false;
+
+            // This is only the focused demo's safe arena-target check. Nodes 088/089/090 remain
+            // inside node_087 and do not pass through node_328, so the generic option-range-plus-4
+            // interrupt gate must not suppress their decoded <=13 m tables.
+            Vector3 arenaOffset = hunter.position - arenaCenter;
+            arenaOffset.y = 0f;
+            return arenaOffset.sqrMagnitude <= arenaRadius * arenaRadius * 1.35f;
+        }
+
         void FinishSequence()
         {
             bool land = _activeOption != null && _activeOption.landAfterSequence && IsAirborne;
@@ -679,8 +778,10 @@ namespace VelkhanaSlice.Monster
         void ClearSequence()
         {
             _activeOption = null;
+            CurrentThkNode = string.Empty;
             CurrentThkTrace = string.Empty;
             IsGroundOpenerSliceActive = false;
+            _groundOpenerLeaf = VelkhanaNode087Leaf.None;
             _followUps = Array.Empty<AttackDefinition>();
             SequenceStep = 0;
             SequenceLength = 1;
@@ -941,6 +1042,52 @@ namespace VelkhanaSlice.Monster
             }
         }
 
+        static string GroundContinuationNodeName(VelkhanaGroundContinuationNode node)
+        {
+            switch (node)
+            {
+                case VelkhanaGroundContinuationNode.Global088:
+                    return "Global.node_088";
+                case VelkhanaGroundContinuationNode.Global089:
+                    return "Global.node_089";
+                case VelkhanaGroundContinuationNode.Global090:
+                    return "Global.node_090";
+                default:
+                    return string.Empty;
+            }
+        }
+
+        static VelkhanaNode087Leaf Node087LeafForNodeName(string nodeName)
+        {
+            switch (nodeName)
+            {
+                case "Global.node_004":
+                    return VelkhanaNode087Leaf.Global004;
+                case "Global.node_006":
+                    return VelkhanaNode087Leaf.Global006;
+                case "Global.node_009":
+                    return VelkhanaNode087Leaf.Global009;
+                default:
+                    return VelkhanaNode087Leaf.None;
+            }
+        }
+
+        static VelkhanaNode087Leaf ContinuationTargetToLeaf(
+            VelkhanaGroundContinuationTarget target)
+        {
+            switch (target)
+            {
+                case VelkhanaGroundContinuationTarget.Global004:
+                    return VelkhanaNode087Leaf.Global004;
+                case VelkhanaGroundContinuationTarget.Global006:
+                    return VelkhanaNode087Leaf.Global006;
+                case VelkhanaGroundContinuationTarget.Global009:
+                    return VelkhanaNode087Leaf.Global009;
+                default:
+                    return VelkhanaNode087Leaf.None;
+            }
+        }
+
         MonsterAttackOption ChooseCombatMainNode006()
         {
             int roll = combatMainNode006Predicate101
@@ -1067,6 +1214,103 @@ namespace VelkhanaSlice.Monster
                     : VelkhanaNode087Leaf.Global006;
 
             return VelkhanaNode087Leaf.None;
+        }
+
+        public static VelkhanaGroundContinuationNode ContinuationNodeFor(
+            VelkhanaNode087Leaf openerLeaf)
+        {
+            switch (openerLeaf)
+            {
+                case VelkhanaNode087Leaf.Global009:
+                    return VelkhanaGroundContinuationNode.Global088;
+                case VelkhanaNode087Leaf.Global006:
+                    return VelkhanaGroundContinuationNode.Global089;
+                case VelkhanaNode087Leaf.Global004:
+                    return VelkhanaGroundContinuationNode.Global090;
+                default:
+                    return VelkhanaGroundContinuationNode.None;
+            }
+        }
+
+        /// <summary>
+        /// Decoded node_088/089/090 selection after node_087's opener motion has completely
+        /// finished. Distances are metres converted from the source's 300/900/1300-unit gates.
+        /// Callers consume one roll only while the post-motion target distance is at most 13 m.
+        /// </summary>
+        public static VelkhanaGroundContinuationTarget SelectGroundOpenerContinuation(
+            VelkhanaNode087Leaf openerLeaf,
+            float postMotionDistanceMetres,
+            int roll0To99)
+        {
+            postMotionDistanceMetres = Mathf.Max(0f, postMotionDistanceMetres);
+            if (postMotionDistanceMetres > 13f)
+                return VelkhanaGroundContinuationTarget.None;
+
+            ValidateRoll100(roll0To99);
+            switch (openerLeaf)
+            {
+                // node_088 repeats the same 65/35 node_004/node_006 table at <=3, <=9 and <=13 m.
+                case VelkhanaNode087Leaf.Global009:
+                    return roll0To99 < 65
+                        ? VelkhanaGroundContinuationTarget.Global004
+                        : VelkhanaGroundContinuationTarget.Global006;
+
+                // node_089 uses 65/35 node_004/node_009 through 9 m, then node_004 at <=13 m.
+                case VelkhanaNode087Leaf.Global006:
+                    if (postMotionDistanceMetres <= 9f)
+                        return roll0To99 < 65
+                            ? VelkhanaGroundContinuationTarget.Global004
+                            : VelkhanaGroundContinuationTarget.Global009;
+                    return VelkhanaGroundContinuationTarget.Global004;
+
+                // node_090 uses 50/50 node_004/node_079 through 9 m, then node_004 at <=13 m.
+                case VelkhanaNode087Leaf.Global004:
+                    if (postMotionDistanceMetres <= 9f)
+                        return roll0To99 < 50
+                            ? VelkhanaGroundContinuationTarget.Global004
+                            : VelkhanaGroundContinuationTarget.Global079;
+                    return VelkhanaGroundContinuationTarget.Global004;
+
+                default:
+                    return VelkhanaGroundContinuationTarget.None;
+            }
+        }
+
+        /// <summary>node_079's only random block, used when Velkhana is within 5 m of arenaCenter.</summary>
+        public static VelkhanaNode087Leaf SelectNode079NearLeaf(int roll0To99)
+        {
+            ValidateRoll100(roll0To99);
+            return roll0To99 < 50
+                ? VelkhanaNode087Leaf.Global006
+                : VelkhanaNode087Leaf.Global009;
+        }
+
+        /// <summary>
+        /// node_079's non-random branch beyond 5 m from arenaCenter. It compares the same wrapped
+        /// clockwise 270..90 sector first for the arena center and then for the sole hunter.
+        /// </summary>
+        public static VelkhanaNode087Leaf SelectNode079FarLeaf(
+            bool arenaCenterInSector,
+            bool hunterInSector)
+        {
+            return arenaCenterInSector == hunterInSector
+                ? VelkhanaNode087Leaf.Global006
+                : VelkhanaNode087Leaf.Global009;
+        }
+
+        public static bool DirectionIsInClockwiseSector270To90(
+            Vector3 forward,
+            Vector3 direction)
+        {
+            forward.y = 0f;
+            direction.y = 0f;
+            if (forward.sqrMagnitude < 0.001f || direction.sqrMagnitude < 0.001f)
+                return true;
+
+            float clockwiseDegrees = Vector3.SignedAngle(
+                forward.normalized, direction.normalized, Vector3.up);
+            if (clockwiseDegrees < 0f) clockwiseDegrees += 360f;
+            return clockwiseDegrees <= 90f || clockwiseDegrees >= 270f;
         }
 
         static void ValidateRoll100(int roll0To99)
