@@ -423,7 +423,10 @@ namespace VelkhanaSlice.Hunter
                         _moveInput.sqrMagnitude > 0.02f
                             ? Wp00Node.DrawMoving
                             : Wp00Node.DrawStationary;
-                    BeginAttack(AttackForNode(drawNode), drawNode, false);
+                    if (drawNode == Wp00Node.DrawMoving)
+                        BeginCharge(ChargeStage.Basic, Wp00Node.DrawMoving);
+                    else
+                        BeginAttack(AttackForNode(drawNode), drawNode, false);
                     return;
                 }
 
@@ -457,6 +460,25 @@ namespace VelkhanaSlice.Hunter
 
             ChargeLevel = ChargeLevelFor(_chargeFrames);
 
+            int lastThreshold =
+                chargeThresholds.Length > 0
+                    ? chargeThresholds[chargeThresholds.Length - 1]
+                    : 0;
+            bool forcedOvercharge =
+                chargeThresholds.Length > 0 &&
+                overchargeFrames >= 0 &&
+                _chargeFrames >= lastThreshold + overchargeFrames;
+
+            // Decoded N021 (moving draw, ActionNo 7) is its own hold-capable state. Its only
+            // retained combat exit is Triangle release/overcharge through compressed N031
+            // LinkMotion 104 into N001; Circle does not take the generic N003 tackle edge.
+            if (CurrentNode == Wp00Node.DrawMoving)
+            {
+                if (!_primaryHeld || forcedOvercharge)
+                    ReleaseCharge();
+                return;
+            }
+
             // WP00 charge nodes have a Circle/tackle edge, but no direct evade edge.
             if (_secondaryPressed)
             {
@@ -467,15 +489,6 @@ namespace VelkhanaSlice.Hunter
                     false);
                 return;
             }
-
-            int lastThreshold =
-                chargeThresholds.Length > 0
-                    ? chargeThresholds[chargeThresholds.Length - 1]
-                    : 0;
-            bool forcedOvercharge =
-                chargeThresholds.Length > 0 &&
-                overchargeFrames >= 0 &&
-                _chargeFrames >= lastThreshold + overchargeFrames;
 
             if (!_primaryHeld || forcedOvercharge)
                 ReleaseCharge();
@@ -591,8 +604,8 @@ namespace VelkhanaSlice.Hunter
                 return;
             }
 
-            // Stationary draw can be held into the basic charge route. Moving draw remains its
-            // own draw attack, matching the distinct WP00 nodes 21 and 22.
+            // Stationary N022 can be held through compressed N023 into N003. Moving N021 is
+            // handled directly by TickCharging and never reaches attack completion here.
             if (completedNode == Wp00Node.DrawStationary && _primaryHeld)
             {
                 BeginCharge(ChargeStage.Basic, Wp00Node.ChargeSlashHold);

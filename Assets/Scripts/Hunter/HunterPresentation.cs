@@ -242,8 +242,18 @@ namespace VelkhanaSlice.Hunter
                 float settle = SmoothStep(Mathf.Clamp01(_controller.ChargeFrames / 12f));
                 Vector3 chargePosition = ChargeSwordPosition();
                 Quaternion chargeRotation = ChargeSwordRotation();
-                localPosition = Vector3.Lerp(localPosition, chargePosition, settle);
-                localRotation = Quaternion.Slerp(localRotation, chargeRotation, settle);
+                if (_controller.CurrentNode == HunterController.Wp00Node.DrawMoving)
+                {
+                    // N021 charges while drawing: visibly travel from the back socket into the
+                    // charge pose instead of snapping to the hand before the hold begins.
+                    localPosition = Vector3.Lerp(backSocket.localPosition, chargePosition, settle);
+                    localRotation = Quaternion.Slerp(backSocket.localRotation, chargeRotation, settle);
+                }
+                else
+                {
+                    localPosition = Vector3.Lerp(localPosition, chargePosition, settle);
+                    localRotation = Quaternion.Slerp(localRotation, chargeRotation, settle);
+                }
             }
             else if (_controller.CurrentState == HunterController.State.Guarding)
             {

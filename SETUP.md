@@ -103,7 +103,9 @@ mouse to aim, west button or left mouse for Triangle/primary, north button or ri
 Circle/secondary, right trigger or R/left Ctrl to guard, east button or space to roll, south button
 or F to manually draw/sheathe, and left-stick click or either Shift key to run. Running automatically
 sheathes a drawn sword before accelerating; attacking during that transition cancels it into the
-correct stationary or moving draw route instead of skipping directly to charge.
+correct stationary or moving draw route while preserving the decoded source-node identity. A held
+moving draw stays in N021/ActionNo7 while charging, then releases through compressed N031 into N001;
+the stationary N022 route remains distinct and uses compressed N023 to enter N003.
 
 ## Tests
 

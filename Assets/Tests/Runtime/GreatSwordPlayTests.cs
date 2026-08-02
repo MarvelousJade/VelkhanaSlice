@@ -142,6 +142,25 @@ namespace VelkhanaSlice.PlayTests
             Assert.IsTrue(hunter.WeaponDrawn);
         }
 
+        IEnumerator CompleteMovingDrawOvercharge(HunterController hunter)
+        {
+            yield return Step(primary: true, move: Vector2.up);
+            Assert.AreEqual(HunterController.State.Charging, hunter.CurrentState);
+            Assert.AreEqual(HunterController.Wp00Node.DrawMoving, hunter.CurrentNode);
+
+            int budget = hunter.chargeThresholds[hunter.chargeThresholds.Length - 1] +
+                         hunter.overchargeFrames + hunter.chargedSlash.TotalFrames + 12;
+            while (!(hunter.CurrentState == HunterController.State.Free &&
+                     hunter.CurrentNode == HunterController.Wp00Node.Idle) &&
+                   budget-- > 0)
+            {
+                yield return Step(primary: true);
+            }
+
+            Assert.AreEqual(HunterController.State.Free, hunter.CurrentState);
+            Assert.AreEqual(HunterController.Wp00Node.Idle, hunter.CurrentNode);
+        }
+
         [Test]
         public void InputPressLatchRejectsSameUpdateAndAcceptsNextUpdate()
         {
@@ -187,28 +206,39 @@ namespace VelkhanaSlice.PlayTests
         }
 
         [UnityTest]
-        public IEnumerator HeldPrimaryAfterMovingDrawDoesNotBecomeAFreshNeutralPress()
+        public IEnumerator HeldMovingDrawRemainsN021AndDoesNotTakeTheN003TackleEdge()
         {
             var hunter = MakeHunter(out var root);
             try
             {
-                yield return Step(primary: true, move: Vector2.up);
+                _keyboard.MakeCurrent();
+                _mouse.MakeCurrent();
+                InputSystem.QueueStateEvent(_keyboard, new KeyboardState(Key.W));
+                InputSystem.QueueStateEvent(
+                    _mouse,
+                    new MouseState().WithButton(MouseButton.Left));
+                yield return null;
+                yield return new WaitForFixedUpdate();
+
+                Assert.AreEqual(HunterController.State.Charging, hunter.CurrentState);
                 Assert.AreEqual(HunterController.Wp00Node.DrawMoving, hunter.CurrentNode);
-                Assert.AreSame(hunter.drawSlash, hunter.CurrentAttack);
-
-                int budget = hunter.drawSlash.TotalFrames + 4;
-                while (hunter.CurrentState == HunterController.State.Attacking && budget-- > 0)
-                    yield return Step(primary: true);
-
-                Assert.AreEqual(HunterController.State.Free, hunter.CurrentState);
-                Assert.AreEqual(HunterController.Wp00Node.Idle, hunter.CurrentNode);
-
-                // The same physical hold is still down, but no new press edge occurred.
-                yield return Step(primary: true);
-                yield return Step(primary: true);
-                Assert.AreEqual(HunterController.State.Free, hunter.CurrentState);
                 Assert.IsNull(hunter.CurrentAttack);
-                Assert.AreEqual(HunterController.ChargeStage.None, hunter.CurrentChargeStage);
+                int before = hunter.ChargeFrames;
+
+                InputSystem.QueueStateEvent(
+                    _mouse,
+                    new MouseState()
+                        .WithButton(MouseButton.Left)
+                        .WithButton(MouseButton.Right));
+                yield return null;
+                yield return new WaitForFixedUpdate();
+
+                Assert.Greater(hunter.ChargeFrames, before);
+                Assert.AreEqual(HunterController.State.Charging, hunter.CurrentState);
+                Assert.AreEqual(HunterController.Wp00Node.DrawMoving, hunter.CurrentNode);
+                Assert.IsNull(hunter.CurrentAttack);
+                Assert.AreNotEqual(HunterController.Wp00Node.Tackle, hunter.CurrentNode,
+                    "N021 has no Circle transition to N041");
             }
             finally
             {
@@ -217,17 +247,17 @@ namespace VelkhanaSlice.PlayTests
         }
 
         [UnityTest]
-        public IEnumerator HeldVirtualMousePressIsConsumedOnceAcrossFixedSteps()
+        public IEnumerator HeldVirtualMouseMovingDrawChargesAndReleaseEntersN001Once()
         {
             var hunter = MakeHunter(out var root);
 
             try
             {
-                // Keep N021 observable even if the editor performs fixed-step catch-up before the
-                // test coroutine resumes.
-                hunter.drawSlash.startupFrames = 5;
-                hunter.drawSlash.activeFrames = 3;
-                hunter.drawSlash.recoveryFrames = 8;
+                hunter.chargeThresholds = new[] { 4, 12, 24 };
+                hunter.overchargeFrames = 20;
+                hunter.chargedSlash.startupFrames = 5;
+                hunter.chargedSlash.activeFrames = 3;
+                hunter.chargedSlash.recoveryFrames = 8;
 
                 _keyboard.MakeCurrent();
                 _mouse.MakeCurrent();
@@ -238,44 +268,162 @@ namespace VelkhanaSlice.PlayTests
                     _mouse,
                     new MouseState().WithButton(MouseButton.Left));
 
-                int startBudget = hunter.drawSlash.TotalFrames + 12;
-                while (hunter.CurrentAttack != hunter.drawSlash && startBudget-- > 0)
+                int startBudget = 12;
+                while (hunter.CurrentNode != HunterController.Wp00Node.DrawMoving &&
+                       startBudget-- > 0)
                 {
                     yield return null;
                     yield return new WaitForFixedUpdate();
                 }
 
-                Assert.AreSame(hunter.drawSlash, hunter.CurrentAttack);
+                Assert.AreEqual(HunterController.State.Charging, hunter.CurrentState);
                 Assert.AreEqual(HunterController.Wp00Node.DrawMoving, hunter.CurrentNode);
+                Assert.AreEqual(HunterController.ChargeStage.Basic, hunter.CurrentChargeStage);
+                Assert.IsNull(hunter.CurrentAttack);
                 Assert.IsTrue(_mouse.leftButton.isPressed);
 
-                int completionBudget = hunter.drawSlash.TotalFrames + 12;
-                while (hunter.CurrentState == HunterController.State.Attacking &&
+                int startingChargeFrames = hunter.ChargeFrames;
+                int chargeBudget = 30;
+                while (hunter.ChargeLevel < 2 && chargeBudget-- > 0)
+                {
+                    yield return null;
+                    yield return new WaitForFixedUpdate();
+                }
+
+                Assert.AreEqual(HunterController.Wp00Node.DrawMoving, hunter.CurrentNode,
+                    "held N021 must not route through N023/N003");
+                Assert.Greater(hunter.ChargeFrames, startingChargeFrames);
+                Assert.GreaterOrEqual(hunter.ChargeLevel, 2);
+                int heldLevel = hunter.ChargeLevel;
+
+                InputSystem.QueueStateEvent(_mouse, new MouseState());
+                yield return null;
+                yield return new WaitForFixedUpdate();
+
+                Assert.AreEqual(HunterController.State.Attacking, hunter.CurrentState);
+                Assert.AreEqual(HunterController.Wp00Node.ChargeSlashRelease, hunter.CurrentNode);
+                Assert.AreSame(hunter.chargedSlash, hunter.CurrentAttack);
+                Assert.GreaterOrEqual(hunter.ChargeLevel, heldLevel,
+                    "compressed N031 must not reset N021's charge power entering N001");
+                Assert.AreEqual(
+                    hunter.ChargeLevelFor(hunter.ChargeFrames), hunter.ChargeLevel);
+
+                int releaseEntries = 1;
+                HunterController.Wp00Node previousNode = hunter.CurrentNode;
+                int completionBudget = hunter.chargedSlash.TotalFrames + 12;
+                while (hunter.CurrentState != HunterController.State.Free &&
                        completionBudget-- > 0)
                 {
                     yield return null;
                     yield return new WaitForFixedUpdate();
+
+                    if (hunter.CurrentNode == HunterController.Wp00Node.ChargeSlashRelease &&
+                        previousNode != HunterController.Wp00Node.ChargeSlashRelease)
+                        releaseEntries++;
+                    previousNode = hunter.CurrentNode;
                 }
 
+                Assert.AreEqual(1, releaseEntries);
                 Assert.AreEqual(HunterController.State.Free, hunter.CurrentState);
                 Assert.AreEqual(HunterController.Wp00Node.Idle, hunter.CurrentNode);
-                Assert.IsNull(hunter.CurrentAttack);
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+            }
+        }
 
-                // No additional device event is queued: LMB and W remain physically held while
-                // several more fixed steps prove that the original edge cannot be re-latched.
-                for (int i = 0; i < 6; i++)
+        [UnityTest]
+        public IEnumerator HeldVirtualMouseMovingDrawOverchargesOnceThenRequiresNewPress()
+        {
+            var hunter = MakeHunter(out var root);
+
+            try
+            {
+                hunter.chargeThresholds = new[] { 4, 8, 12 };
+                hunter.overchargeFrames = 6;
+                hunter.chargedSlash.startupFrames = 5;
+                hunter.chargedSlash.activeFrames = 3;
+                hunter.chargedSlash.recoveryFrames = 8;
+                _keyboard.MakeCurrent();
+                _mouse.MakeCurrent();
+
+                InputSystem.QueueStateEvent(_keyboard, new KeyboardState(Key.W));
+                InputSystem.QueueStateEvent(
+                    _mouse,
+                    new MouseState().WithButton(MouseButton.Left));
+
+                int startBudget = 12;
+                while (hunter.CurrentNode != HunterController.Wp00Node.DrawMoving &&
+                       startBudget-- > 0)
+                {
+                    yield return null;
+                    yield return new WaitForFixedUpdate();
+                }
+
+                Assert.AreEqual(HunterController.State.Charging, hunter.CurrentState);
+                Assert.AreEqual(HunterController.Wp00Node.DrawMoving, hunter.CurrentNode);
+
+                int releaseEntries = 0;
+                HunterController.Wp00Node previousNode = hunter.CurrentNode;
+                int sequenceBudget =
+                    hunter.chargeThresholds[hunter.chargeThresholds.Length - 1] +
+                    hunter.overchargeFrames + hunter.chargedSlash.TotalFrames + 20;
+                while (!(hunter.CurrentState == HunterController.State.Free &&
+                         hunter.CurrentNode == HunterController.Wp00Node.Idle) &&
+                       sequenceBudget-- > 0)
                 {
                     yield return null;
                     yield return new WaitForFixedUpdate();
 
-                    Assert.IsTrue(_mouse.leftButton.isPressed);
+                    if (hunter.CurrentNode == HunterController.Wp00Node.ChargeSlashRelease &&
+                        previousNode != HunterController.Wp00Node.ChargeSlashRelease)
+                    {
+                        releaseEntries++;
+                        Assert.AreSame(hunter.chargedSlash, hunter.CurrentAttack);
+                        Assert.AreEqual(1, hunter.ChargeLevel,
+                            "project overcharge compresses N031 into N001 at reduced level one");
+                    }
+                    previousNode = hunter.CurrentNode;
+                }
+
+                Assert.AreEqual(1, releaseEntries);
+                Assert.IsTrue(_mouse.leftButton.isPressed);
+                Assert.AreEqual(HunterController.State.Free, hunter.CurrentState);
+
+                // No new device event: the same physical press must not manufacture another N021.
+                for (int i = 0; i < 5; i++)
+                {
+                    yield return null;
+                    yield return new WaitForFixedUpdate();
                     Assert.AreEqual(HunterController.State.Free, hunter.CurrentState);
                     Assert.AreEqual(HunterController.Wp00Node.Idle, hunter.CurrentNode);
                     Assert.IsNull(hunter.CurrentAttack);
-                    Assert.AreEqual(
-                        HunterController.ChargeStage.None,
-                        hunter.CurrentChargeStage);
                 }
+
+                // A real release/new press is accepted. N001 left the weapon drawn, so the fresh
+                // drawn-idle press correctly enters N074 rather than manufacturing another N021;
+                // releasing N074 then enters N001 without passing through N003.
+                InputSystem.QueueStateEvent(_mouse, new MouseState());
+                yield return null;
+                yield return new WaitForFixedUpdate();
+                InputSystem.QueueStateEvent(
+                    _mouse,
+                    new MouseState().WithButton(MouseButton.Left));
+                yield return null;
+                yield return new WaitForFixedUpdate();
+
+                Assert.AreEqual(HunterController.State.Charging, hunter.CurrentState);
+                Assert.IsTrue(hunter.WeaponDrawn);
+                Assert.AreEqual(HunterController.Wp00Node.IdleToCharge, hunter.CurrentNode);
+                InputSystem.QueueStateEvent(_mouse, new MouseState());
+                yield return null;
+                yield return new WaitForFixedUpdate();
+
+                Assert.AreEqual(HunterController.State.Attacking, hunter.CurrentState);
+                Assert.AreEqual(HunterController.Wp00Node.ChargeSlashRelease, hunter.CurrentNode);
+                Assert.AreSame(hunter.chargedSlash, hunter.CurrentAttack);
+                Assert.AreNotEqual(HunterController.Wp00Node.ChargeSlashHold, hunter.CurrentNode);
             }
             finally
             {
@@ -401,14 +549,7 @@ namespace VelkhanaSlice.PlayTests
             var hunter = MakeHunter(out var root);
             try
             {
-                yield return Step(primary: true, move: Vector2.up);
-                Assert.AreEqual(HunterController.Wp00Node.DrawMoving, hunter.CurrentNode);
-
-                int budget = hunter.drawSlash.TotalFrames + 4;
-                while (hunter.CurrentState == HunterController.State.Attacking && budget-- > 0)
-                    yield return Step(primary: true);
-
-                Assert.AreEqual(HunterController.State.Free, hunter.CurrentState);
+                yield return CompleteMovingDrawOvercharge(hunter);
                 yield return Step(primary: true, secondary: true);
 
                 Assert.AreEqual(HunterController.State.Attacking, hunter.CurrentState);
@@ -455,11 +596,7 @@ namespace VelkhanaSlice.PlayTests
             try
             {
                 // Establish a continuing primary hold without creating another neutral edge.
-                yield return Step(primary: true, move: Vector2.up);
-                int budget = hunter.drawSlash.TotalFrames + 4;
-                while (hunter.CurrentState == HunterController.State.Attacking && budget-- > 0)
-                    yield return Step(primary: true);
-                Assert.AreEqual(HunterController.State.Free, hunter.CurrentState);
+                yield return CompleteMovingDrawOvercharge(hunter);
 
                 yield return Step(primary: true, run: true, move: Vector2.up);
                 Assert.IsTrue(hunter.IsWeaponTransitioning);
@@ -623,7 +760,7 @@ namespace VelkhanaSlice.PlayTests
         }
 
         [UnityTest]
-        public IEnumerator PendingRunSheatheAttackUsesMovingDrawInsteadOfCharge()
+        public IEnumerator PendingRunSheatheAttackUsesMovingDrawCharge()
         {
             var hunter = MakeHunter(out var root);
             try
@@ -635,9 +772,10 @@ namespace VelkhanaSlice.PlayTests
                 Assert.IsFalse(hunter.WeaponTransitionDrawn);
 
                 yield return Step(primary: true, run: true, move: Vector2.up);
-                Assert.AreEqual(HunterController.State.Attacking, hunter.CurrentState);
+                Assert.AreEqual(HunterController.State.Charging, hunter.CurrentState);
                 Assert.AreEqual(HunterController.Wp00Node.DrawMoving, hunter.CurrentNode);
-                Assert.AreSame(hunter.drawSlash, hunter.CurrentAttack);
+                Assert.AreEqual(HunterController.ChargeStage.Basic, hunter.CurrentChargeStage);
+                Assert.IsNull(hunter.CurrentAttack);
                 Assert.IsFalse(hunter.IsWeaponTransitioning);
             }
             finally
