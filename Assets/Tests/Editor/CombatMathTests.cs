@@ -238,22 +238,22 @@ namespace VelkhanaSlice.Tests
             AssertRoute(
                 VelkhanaSlice.Hunter.HunterController.Wp00Node.ChargeSlashHold,
                 VelkhanaSlice.Hunter.HunterController.CoreInput.Release,
-                VelkhanaSlice.Hunter.HunterController.Wp00Node.ChargeSlashRelease);
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.VerticalSlash);
             AssertRoute(
                 VelkhanaSlice.Hunter.HunterController.Wp00Node.ChargeSlashHold,
                 VelkhanaSlice.Hunter.HunterController.CoreInput.Secondary,
                 VelkhanaSlice.Hunter.HunterController.Wp00Node.Tackle);
             AssertRoute(
-                VelkhanaSlice.Hunter.HunterController.Wp00Node.ChargeSlashRelease,
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.VerticalSlash,
                 VelkhanaSlice.Hunter.HunterController.CoreInput.Primary |
                 VelkhanaSlice.Hunter.HunterController.CoreInput.Direction,
                 VelkhanaSlice.Hunter.HunterController.Wp00Node.StrongChargeHold);
             AssertRoute(
                 VelkhanaSlice.Hunter.HunterController.Wp00Node.StrongChargeHold,
                 VelkhanaSlice.Hunter.HunterController.CoreInput.Release,
-                VelkhanaSlice.Hunter.HunterController.Wp00Node.StrongChargeRelease);
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.StrongVerticalSlash);
             AssertRoute(
-                VelkhanaSlice.Hunter.HunterController.Wp00Node.StrongChargeRelease,
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.StrongVerticalSlash,
                 VelkhanaSlice.Hunter.HunterController.CoreInput.Primary |
                 VelkhanaSlice.Hunter.HunterController.CoreInput.Direction,
                 VelkhanaSlice.Hunter.HunterController.Wp00Node.TrueChargeHold);
@@ -292,19 +292,19 @@ namespace VelkhanaSlice.Tests
             var direction = VelkhanaSlice.Hunter.HunterController.CoreInput.Direction;
 
             AssertRoute(
-                VelkhanaSlice.Hunter.HunterController.Wp00Node.StrongChargeRelease,
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.StrongVerticalSlash,
                 input | direction,
                 VelkhanaSlice.Hunter.HunterController.Wp00Node.TrueChargeHold);
             AssertRoute(
-                VelkhanaSlice.Hunter.HunterController.Wp00Node.StrongChargeRelease,
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.StrongVerticalSlash,
                 secondary,
                 VelkhanaSlice.Hunter.HunterController.Wp00Node.StrongWideSlash);
             AssertRoute(
-                VelkhanaSlice.Hunter.HunterController.Wp00Node.StrongChargeRelease,
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.StrongVerticalSlash,
                 input,
                 VelkhanaSlice.Hunter.HunterController.Wp00Node.SideBlowPostStrong);
             AssertRoute(
-                VelkhanaSlice.Hunter.HunterController.Wp00Node.StrongChargeRelease,
+                VelkhanaSlice.Hunter.HunterController.Wp00Node.StrongVerticalSlash,
                 input | secondary,
                 VelkhanaSlice.Hunter.HunterController.Wp00Node.RisingSlashPostStrong);
         }
@@ -380,7 +380,7 @@ namespace VelkhanaSlice.Tests
             Assert.AreEqual(
                 7,
                 VelkhanaSlice.Hunter.HunterController.ActionNumberFor(
-                    VelkhanaSlice.Hunter.HunterController.Wp00Node.DrawMoving));
+                    VelkhanaSlice.Hunter.HunterController.Wp00Node.MovingDrawToVerticalSlash));
             Assert.AreEqual(
                 1005,
                 VelkhanaSlice.Hunter.HunterController.ActionNumberFor(

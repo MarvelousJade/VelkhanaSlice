@@ -198,7 +198,7 @@ namespace VelkhanaSlice.PlayTests
         {
             yield return Step(primary: true, move: Vector2.up);
             Assert.AreEqual(HunterController.State.Charging, hunter.CurrentState);
-            Assert.AreEqual(HunterController.Wp00Node.DrawMoving, hunter.CurrentNode);
+            Assert.AreEqual(HunterController.Wp00Node.MovingDrawToVerticalSlash, hunter.CurrentNode);
 
             int budget = hunter.chargeThresholds[hunter.chargeThresholds.Length - 1] +
                          hunter.overchargeFrames + hunter.chargedSlash.TotalFrames + 12;
@@ -273,7 +273,7 @@ namespace VelkhanaSlice.PlayTests
                 yield return new WaitForFixedUpdate();
 
                 Assert.AreEqual(HunterController.State.Charging, hunter.CurrentState);
-                Assert.AreEqual(HunterController.Wp00Node.DrawMoving, hunter.CurrentNode);
+                Assert.AreEqual(HunterController.Wp00Node.MovingDrawToVerticalSlash, hunter.CurrentNode);
                 Assert.IsNull(hunter.CurrentAttack);
                 int before = hunter.ChargeFrames;
 
@@ -287,7 +287,7 @@ namespace VelkhanaSlice.PlayTests
 
                 Assert.Greater(hunter.ChargeFrames, before);
                 Assert.AreEqual(HunterController.State.Charging, hunter.CurrentState);
-                Assert.AreEqual(HunterController.Wp00Node.DrawMoving, hunter.CurrentNode);
+                Assert.AreEqual(HunterController.Wp00Node.MovingDrawToVerticalSlash, hunter.CurrentNode);
                 Assert.IsNull(hunter.CurrentAttack);
                 Assert.AreNotEqual(HunterController.Wp00Node.Tackle, hunter.CurrentNode,
                     "N021 has no Circle transition to N041");
@@ -321,7 +321,7 @@ namespace VelkhanaSlice.PlayTests
                     new MouseState().WithButton(MouseButton.Left));
 
                 int startBudget = 12;
-                while (hunter.CurrentNode != HunterController.Wp00Node.DrawMoving &&
+                while (hunter.CurrentNode != HunterController.Wp00Node.MovingDrawToVerticalSlash &&
                        startBudget-- > 0)
                 {
                     yield return null;
@@ -329,7 +329,7 @@ namespace VelkhanaSlice.PlayTests
                 }
 
                 Assert.AreEqual(HunterController.State.Charging, hunter.CurrentState);
-                Assert.AreEqual(HunterController.Wp00Node.DrawMoving, hunter.CurrentNode);
+                Assert.AreEqual(HunterController.Wp00Node.MovingDrawToVerticalSlash, hunter.CurrentNode);
                 Assert.AreEqual(HunterController.ChargeStage.Basic, hunter.CurrentChargeStage);
                 Assert.IsNull(hunter.CurrentAttack);
                 Assert.IsTrue(_mouse.leftButton.isPressed);
@@ -342,7 +342,7 @@ namespace VelkhanaSlice.PlayTests
                     yield return new WaitForFixedUpdate();
                 }
 
-                Assert.AreEqual(HunterController.Wp00Node.DrawMoving, hunter.CurrentNode,
+                Assert.AreEqual(HunterController.Wp00Node.MovingDrawToVerticalSlash, hunter.CurrentNode,
                     "held N021 must not route through N023/N003");
                 Assert.Greater(hunter.ChargeFrames, startingChargeFrames);
                 Assert.GreaterOrEqual(hunter.ChargeLevel, 2);
@@ -353,7 +353,7 @@ namespace VelkhanaSlice.PlayTests
                 yield return new WaitForFixedUpdate();
 
                 Assert.AreEqual(HunterController.State.Attacking, hunter.CurrentState);
-                Assert.AreEqual(HunterController.Wp00Node.ChargeSlashRelease, hunter.CurrentNode);
+                Assert.AreEqual(HunterController.Wp00Node.VerticalSlash, hunter.CurrentNode);
                 Assert.AreSame(hunter.chargedSlash, hunter.CurrentAttack);
                 Assert.GreaterOrEqual(hunter.ChargeLevel, heldLevel,
                     "compressed N031 must not reset N021's charge power entering N001");
@@ -369,8 +369,8 @@ namespace VelkhanaSlice.PlayTests
                     yield return null;
                     yield return new WaitForFixedUpdate();
 
-                    if (hunter.CurrentNode == HunterController.Wp00Node.ChargeSlashRelease &&
-                        previousNode != HunterController.Wp00Node.ChargeSlashRelease)
+                    if (hunter.CurrentNode == HunterController.Wp00Node.VerticalSlash &&
+                        previousNode != HunterController.Wp00Node.VerticalSlash)
                         releaseEntries++;
                     previousNode = hunter.CurrentNode;
                 }
@@ -406,7 +406,7 @@ namespace VelkhanaSlice.PlayTests
                     new MouseState().WithButton(MouseButton.Left));
 
                 int startBudget = 12;
-                while (hunter.CurrentNode != HunterController.Wp00Node.DrawMoving &&
+                while (hunter.CurrentNode != HunterController.Wp00Node.MovingDrawToVerticalSlash &&
                        startBudget-- > 0)
                 {
                     yield return null;
@@ -414,7 +414,7 @@ namespace VelkhanaSlice.PlayTests
                 }
 
                 Assert.AreEqual(HunterController.State.Charging, hunter.CurrentState);
-                Assert.AreEqual(HunterController.Wp00Node.DrawMoving, hunter.CurrentNode);
+                Assert.AreEqual(HunterController.Wp00Node.MovingDrawToVerticalSlash, hunter.CurrentNode);
 
                 int releaseEntries = 0;
                 HunterController.Wp00Node previousNode = hunter.CurrentNode;
@@ -428,8 +428,8 @@ namespace VelkhanaSlice.PlayTests
                     yield return null;
                     yield return new WaitForFixedUpdate();
 
-                    if (hunter.CurrentNode == HunterController.Wp00Node.ChargeSlashRelease &&
-                        previousNode != HunterController.Wp00Node.ChargeSlashRelease)
+                    if (hunter.CurrentNode == HunterController.Wp00Node.VerticalSlash &&
+                        previousNode != HunterController.Wp00Node.VerticalSlash)
                     {
                         releaseEntries++;
                         Assert.AreSame(hunter.chargedSlash, hunter.CurrentAttack);
@@ -473,7 +473,7 @@ namespace VelkhanaSlice.PlayTests
                 yield return new WaitForFixedUpdate();
 
                 Assert.AreEqual(HunterController.State.Attacking, hunter.CurrentState);
-                Assert.AreEqual(HunterController.Wp00Node.ChargeSlashRelease, hunter.CurrentNode);
+                Assert.AreEqual(HunterController.Wp00Node.VerticalSlash, hunter.CurrentNode);
                 Assert.AreSame(hunter.chargedSlash, hunter.CurrentAttack);
                 Assert.AreNotEqual(HunterController.Wp00Node.ChargeSlashHold, hunter.CurrentNode);
             }
@@ -540,8 +540,8 @@ namespace VelkhanaSlice.PlayTests
 
                     if (hunter.CurrentNode == HunterController.Wp00Node.ChargeSlashHold)
                         sawChargeHold = true;
-                    if (hunter.CurrentNode == HunterController.Wp00Node.ChargeSlashRelease &&
-                        previousNode != HunterController.Wp00Node.ChargeSlashRelease)
+                    if (hunter.CurrentNode == HunterController.Wp00Node.VerticalSlash &&
+                        previousNode != HunterController.Wp00Node.VerticalSlash)
                     {
                         chargeReleaseEntries++;
                         Assert.AreSame(hunter.chargedSlash, hunter.CurrentAttack);
@@ -715,7 +715,7 @@ namespace VelkhanaSlice.PlayTests
                 yield return Step(primary: true);
                 yield return Step();
                 Assert.AreEqual(
-                    HunterController.Wp00Node.ChargeSlashRelease,
+                    HunterController.Wp00Node.VerticalSlash,
                     hunter.CurrentNode);
 
                 // Buffer Triangle+lever and keep Triangle held so the strong hold persists.
@@ -729,7 +729,7 @@ namespace VelkhanaSlice.PlayTests
                 yield return Step(primary: true);
                 yield return Step();
                 Assert.AreEqual(
-                    HunterController.Wp00Node.StrongChargeRelease,
+                    HunterController.Wp00Node.StrongVerticalSlash,
                     hunter.CurrentNode);
 
                 yield return Step(primary: true, move: Vector2.up);
@@ -825,7 +825,7 @@ namespace VelkhanaSlice.PlayTests
 
                 yield return Step(primary: true, run: true, move: Vector2.up);
                 Assert.AreEqual(HunterController.State.Charging, hunter.CurrentState);
-                Assert.AreEqual(HunterController.Wp00Node.DrawMoving, hunter.CurrentNode);
+                Assert.AreEqual(HunterController.Wp00Node.MovingDrawToVerticalSlash, hunter.CurrentNode);
                 Assert.AreEqual(HunterController.ChargeStage.Basic, hunter.CurrentChargeStage);
                 Assert.IsNull(hunter.CurrentAttack);
                 Assert.IsFalse(hunter.IsWeaponTransitioning);

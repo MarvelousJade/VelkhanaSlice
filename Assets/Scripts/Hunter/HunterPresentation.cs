@@ -242,7 +242,7 @@ namespace VelkhanaSlice.Hunter
                 float settle = SmoothStep(Mathf.Clamp01(_controller.ChargeFrames / 12f));
                 Vector3 chargePosition = ChargeSwordPosition();
                 Quaternion chargeRotation = ChargeSwordRotation();
-                if (_controller.CurrentNode == HunterController.Wp00Node.DrawMoving)
+                if (_controller.CurrentNode == HunterController.Wp00Node.MovingDrawToVerticalSlash)
                 {
                     // N021 charges while drawing: visibly travel from the back socket into the
                     // charge pose instead of snapping to the hand before the hold begins.

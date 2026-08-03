@@ -41,18 +41,21 @@ namespace VelkhanaSlice.Hunter
         {
             NoTransition = -1,
             Idle = 0,
-            ChargeSlashRelease = 1,
+            // N001 / ActionNo 65: WP_00::VSLASH | nHmAction::Wp00::cVSlash.
+            VerticalSlash = 1,
             ChargeSlashHold = 3,
             WideSlash = 4,
             Evade = 8,
             SideBlow = 10,
             StrongChargeHold = 11,
-            StrongChargeRelease = 12,
+            // N012 / ActionNo 74: WP_00::STRONG_VSLASH | nHmAction::Wp00::cStrongVSlash.
+            StrongVerticalSlash = 12,
             StrongWideSlash = 13,
             RisingSlash = 14,
             Guard = 19,
             GuardEnd = 20,
-            DrawMoving = 21,
+            // N021 / ActionNo 7: WP_00::WALK_ON | nHmAction::Wp00::cWalkWpOn.
+            MovingDrawToVerticalSlash = 21,
             DrawStationary = 22,
             Kick = 24,
             TrueChargeFirstHit = 39,
@@ -105,7 +108,7 @@ namespace VelkhanaSlice.Hunter
         [Header("Great Sword — decoded WP00 ground core")]
         [Tooltip("WP00 node 22 / ActionNo 5: non-damaging stationary unsheathe.")]
         public AttackDefinition stationaryDraw;
-        [Tooltip("WP00 node 21 / ActionNo 7: moving draw attack.")]
+        [Tooltip("WP00 N021 / ActionNo 7 (WP_00::WALK_ON): moving draw/link state; N031 then enters N001 VSLASH. Serialized field name retained.")]
         public AttackDefinition drawSlash;
         public AttackDefinition chargedSlash;
         public AttackDefinition strongChargedSlash;
@@ -421,10 +424,10 @@ namespace VelkhanaSlice.Hunter
                     WeaponDrawn = true;
                     Wp00Node drawNode =
                         _moveInput.sqrMagnitude > 0.02f
-                            ? Wp00Node.DrawMoving
+                            ? Wp00Node.MovingDrawToVerticalSlash
                             : Wp00Node.DrawStationary;
-                    if (drawNode == Wp00Node.DrawMoving)
-                        BeginCharge(ChargeStage.Basic, Wp00Node.DrawMoving);
+                    if (drawNode == Wp00Node.MovingDrawToVerticalSlash)
+                        BeginCharge(ChargeStage.Basic, Wp00Node.MovingDrawToVerticalSlash);
                     else
                         BeginAttack(AttackForNode(drawNode), drawNode, false);
                     return;
@@ -469,10 +472,11 @@ namespace VelkhanaSlice.Hunter
                 overchargeFrames >= 0 &&
                 _chargeFrames >= lastThreshold + overchargeFrames;
 
-            // Decoded N021 (moving draw, ActionNo 7) is its own hold-capable state. Its only
-            // retained combat exit is Triangle release/overcharge through compressed N031
-            // LinkMotion 104 into N001; Circle does not take the generic N003 tackle edge.
-            if (CurrentNode == Wp00Node.DrawMoving)
+            // Decoded N021 / ActionNo 7 is WP_00::WALK_ON: a moving draw/link state, not the
+            // attack itself. Its only retained combat exit is Triangle release/overcharge through
+            // compressed N031 LinkMotion 104 into N001 / WP_00::VSLASH; Circle does not take the
+            // generic N003 tackle edge.
+            if (CurrentNode == Wp00Node.MovingDrawToVerticalSlash)
             {
                 if (!_primaryHeld || forcedOvercharge)
                     ReleaseCharge();
@@ -501,13 +505,13 @@ namespace VelkhanaSlice.Hunter
             switch (CurrentChargeStage)
             {
                 case ChargeStage.Strong:
-                    BeginAttack(strongChargedSlash, Wp00Node.StrongChargeRelease, true);
+                    BeginAttack(strongChargedSlash, Wp00Node.StrongVerticalSlash, true);
                     break;
                 case ChargeStage.True:
                     BeginAttack(trueChargedSlash, Wp00Node.TrueChargeFirstHit, true);
                     break;
                 default:
-                    BeginAttack(chargedSlash, Wp00Node.ChargeSlashRelease, true);
+                    BeginAttack(chargedSlash, Wp00Node.VerticalSlash, true);
                     break;
             }
         }
@@ -699,8 +703,8 @@ namespace VelkhanaSlice.Hunter
                     AttackDefinition attack = AttackForNode(node);
                     if (attack == null) return false;
                     bool preservesPower =
-                        node == Wp00Node.ChargeSlashRelease ||
-                        node == Wp00Node.StrongChargeRelease ||
+                        node == Wp00Node.VerticalSlash ||
+                        node == Wp00Node.StrongVerticalSlash ||
                         node == Wp00Node.TrueChargeFirstHit ||
                         node == Wp00Node.TrueChargeNormalFinish ||
                         node == Wp00Node.TrueChargeFinishLevel1 ||
@@ -715,13 +719,13 @@ namespace VelkhanaSlice.Hunter
         {
             switch (node)
             {
-                case Wp00Node.DrawMoving:
+                case Wp00Node.MovingDrawToVerticalSlash:
                     return drawSlash;
                 case Wp00Node.DrawStationary:
                     return stationaryDraw;
-                case Wp00Node.ChargeSlashRelease:
+                case Wp00Node.VerticalSlash:
                     return chargedSlash;
-                case Wp00Node.StrongChargeRelease:
+                case Wp00Node.StrongVerticalSlash:
                     return strongChargedSlash;
                 case Wp00Node.TrueChargeFirstHit:
                     return trueChargedSlash;
@@ -782,14 +786,14 @@ namespace VelkhanaSlice.Hunter
                     if (guard) return Wp00Node.Guard;
                     break;
                 case Wp00Node.IdleToCharge:
-                    if (release) return Wp00Node.ChargeSlashRelease;
+                    if (release) return Wp00Node.VerticalSlash;
                     if (primary) return Wp00Node.ChargeSlashHold;
                     break;
                 case Wp00Node.ChargeSlashHold:
                     if (secondary) return Wp00Node.Tackle;
-                    if (release) return Wp00Node.ChargeSlashRelease;
+                    if (release) return Wp00Node.VerticalSlash;
                     break;
-                case Wp00Node.ChargeSlashRelease:
+                case Wp00Node.VerticalSlash:
                     if (both) return Wp00Node.RisingSlash;
                     if (primary && direction) return Wp00Node.StrongChargeHold;
                     if (secondary) return Wp00Node.WideSlash;
@@ -807,9 +811,9 @@ namespace VelkhanaSlice.Hunter
                     break;
                 case Wp00Node.StrongChargeHold:
                     if (secondary) return Wp00Node.TackleLevel2;
-                    if (release) return Wp00Node.StrongChargeRelease;
+                    if (release) return Wp00Node.StrongVerticalSlash;
                     break;
-                case Wp00Node.StrongChargeRelease:
+                case Wp00Node.StrongVerticalSlash:
                     if (both) return Wp00Node.RisingSlashPostStrong;
                     if (primary && direction) return Wp00Node.TrueChargeHold;
                     if (secondary) return Wp00Node.StrongWideSlash;
@@ -891,18 +895,18 @@ namespace VelkhanaSlice.Hunter
             switch (node)
             {
                 case Wp00Node.Idle: return 1000;
-                case Wp00Node.ChargeSlashRelease: return 65;
+                case Wp00Node.VerticalSlash: return 65;
                 case Wp00Node.ChargeSlashHold: return 1013;
                 case Wp00Node.WideSlash: return 1016;
                 case Wp00Node.Evade: return 1005;
                 case Wp00Node.SideBlow: return 71;
                 case Wp00Node.StrongChargeHold: return 1014;
-                case Wp00Node.StrongChargeRelease: return 74;
+                case Wp00Node.StrongVerticalSlash: return 74;
                 case Wp00Node.StrongWideSlash: return 75;
                 case Wp00Node.RisingSlash: return 69;
                 case Wp00Node.Guard: return 1012;
                 case Wp00Node.GuardEnd: return 89;
-                case Wp00Node.DrawMoving: return 7;
+                case Wp00Node.MovingDrawToVerticalSlash: return 7;
                 case Wp00Node.DrawStationary: return 5;
                 case Wp00Node.Kick: return 73;
                 case Wp00Node.TrueChargeFirstHit: return 78;

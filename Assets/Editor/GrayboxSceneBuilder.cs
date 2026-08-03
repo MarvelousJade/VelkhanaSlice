@@ -178,7 +178,9 @@ namespace VelkhanaSlice.EditorTools
                 "GS_StationaryDraw", 18, 0, 4, 18, 0f, 0f,
                 Vector3.zero, Vector3.zero);
 
-            // WP00 node 21 / ActionNo 7 is the distinct moving draw attack.
+            // N021 / ActionNo 7 is WP_00::WALK_ON, a moving draw/link state. The decoded graph
+            // continues through N031 LinkMotion 104 to N001 / WP_00::VSLASH; it is not itself
+            // the draw attack. The serialized DrawSlash field/asset name is retained.
             gs.DrawSlash = Attack("GS_DrawSlash", 22, 4, 34, 14, 90f, 35f,
                 new Vector3(0f, 1f, 1.7f), new Vector3(2.6f, 2f, 2.8f),
                 a =>

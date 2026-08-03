@@ -69,7 +69,8 @@ namespace VelkhanaSlice.DebugTools
             new Beat { label = "19_watch_monster", frames = 180, captureAt = new[] { 40, 90, 140, 175 } },
 
             // The first run beat begins sheathing; attacking before it completes must cancel into
-            // DrawMoving rather than skipping directly into a basic charge.
+            // N021 MovingDrawToVerticalSlash (WP_00::WALK_ON), then N031 into N001 VSLASH,
+            // rather than skipping directly into the N003 basic-charge state.
             new Beat { label = "20_begin_run_sheathe",   frames = 10, move = new Vector2(0f, -1f), run = true, captureAt = new[] { 4, 9 } },
             new Beat { label = "21_attack_pending_sheathe", frames = 60, move = new Vector2(0f, -1f), attack = true, run = true, captureAt = new[] { 1, 20, 52 } },
             new Beat { label = "22_release_draw",        frames = 20 },
