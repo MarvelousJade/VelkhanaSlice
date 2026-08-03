@@ -157,6 +157,20 @@ namespace VelkhanaSlice.Hunter
                 rotation *= Quaternion.Euler(360f * rollTurns * t, 0f, 0f);
                 scale = Vector3.Scale(scale, new Vector3(1f + 0.12f * tuck, 1f - 0.2f * tuck, 1f));
             }
+            else if (_controller.CurrentState == HunterController.State.Launched)
+            {
+                if (_controller.IsKnockedDown)
+                {
+                    position.y -= 0.58f;
+                    rotation *= Quaternion.Euler(0f, 0f, 78f);
+                    scale = Vector3.Scale(scale, new Vector3(1f, 0.82f, 1f));
+                }
+                else
+                {
+                    float tumble = _controller.StateFrame * 18f;
+                    rotation *= Quaternion.Euler(tumble, 0f, tumble * 0.35f);
+                }
+            }
             else if (_controller.CurrentState == HunterController.State.Charging)
             {
                 float chargeTime = _controller.ChargeFrames * Time.fixedDeltaTime;

@@ -6,6 +6,7 @@ using UnityEngine.TestTools;
 using VelkhanaSlice.Combat;
 using VelkhanaSlice.Hunter;
 using VelkhanaSlice.Monster;
+using VelkhanaSlice.DebugTools;
 
 namespace VelkhanaSlice.PlayTests
 {
@@ -92,6 +93,46 @@ namespace VelkhanaSlice.PlayTests
         }
 
         [UnityTest]
+        public IEnumerator DebugHitboxUsesTheLastQueriedPhysicsFrameAtPhaseBoundaries()
+        {
+            var attack = MakeAttack(2, 2, 4, 1);
+            var brain = MakeBrain(out var root, out var hunter, attack);
+            brain.neutralFrames = 1;
+
+            try
+            {
+                int waited = 0;
+                while (brain.CurrentAttack == null && waited++ < FrameBudget)
+                    yield return new WaitForFixedUpdate();
+
+                while (brain.LastSimulatedAttackFrame < attack.startupFrames - 1)
+                    yield return new WaitForFixedUpdate();
+
+                int displayed = CombatVolumeDebug.SimulatedFrameForDisplay(
+                    brain.AttackFrame, brain.LastSimulatedAttackFrame);
+                Assert.IsFalse(attack.IsHitActive(displayed),
+                    "the overlay must remain in startup before the first damaging query");
+                Assert.IsTrue(attack.IsHitActive(brain.AttackFrame),
+                    "this boundary specifically guards against displaying the incremented frame");
+
+                while (brain.LastSimulatedAttackFrame <
+                       attack.startupFrames + attack.activeFrames - 1)
+                    yield return new WaitForFixedUpdate();
+
+                displayed = CombatVolumeDebug.SimulatedFrameForDisplay(
+                    brain.AttackFrame, brain.LastSimulatedAttackFrame);
+                Assert.IsTrue(attack.IsHitActive(displayed),
+                    "the final queried active frame must remain red until the next fixed tick");
+                Assert.IsFalse(attack.IsHitActive(brain.AttackFrame));
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+                Object.DestroyImmediate(hunter);
+            }
+        }
+
+        [UnityTest]
         public IEnumerator BrainWaitsOutTheCooldownBeforeRepeatingItsOnlyAttack()
         {
             var attack = MakeAttack(6, 2, 6, 4);
@@ -166,6 +207,91 @@ namespace VelkhanaSlice.PlayTests
         }
 
         [UnityTest]
+        public IEnumerator TorsoBreakTopplesOnceForTheConfiguredExactDuration()
+        {
+            var attack = MakeAttack(6, 2, 6, 4);
+            var brain = MakeBrain(out var root, out var hunter, attack);
+            var partObject = new GameObject("torso", typeof(BoxCollider), typeof(BodyPartHurtbox));
+            partObject.transform.SetParent(root.transform, false);
+            var torso = partObject.GetComponent<BodyPartHurtbox>();
+            torso.part = BodyPart.Torso;
+            torso.breakThreshold = 10f;
+            torso.toppleOnBreak = true;
+            torso.staggerThreshold = 0f;
+            brain.partBreakToppleFrames = 4;
+            brain.neutralFrames = 1000;
+            brain.RefreshHurtboxBindings();
+
+            try
+            {
+                torso.Apply(10f, 0f);
+                Assert.AreEqual(VelkhanaState.Toppled, brain.CurrentState);
+                Assert.AreEqual(VelkhanaToppleCause.PartBreak, brain.CurrentToppleCause);
+                Assert.AreEqual(4, brain.ToppleFramesRemaining);
+
+                for (int frame = 1; frame < brain.partBreakToppleFrames; frame++)
+                {
+                    yield return new WaitForFixedUpdate();
+                    Assert.AreEqual(VelkhanaState.Toppled, brain.CurrentState,
+                        $"topple ended early on fixed frame {frame}");
+                }
+
+                yield return new WaitForFixedUpdate();
+                Assert.AreEqual(VelkhanaState.Observe, brain.CurrentState);
+
+                torso.Apply(50f, 0f);
+                Assert.AreNotEqual(VelkhanaState.Toppled, brain.CurrentState,
+                    "an already-broken part must not emit another break topple");
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+                Object.DestroyImmediate(hunter);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator LeftAndRightHitsShareAndConsumeOneBodyPartStaggerGauge()
+        {
+            var attack = MakeAttack(6, 2, 6, 4);
+            var brain = MakeBrain(out var root, out var hunter, attack);
+            brain.neutralFrames = 1000;
+
+            var leftObject = new GameObject("frontLegL", typeof(BoxCollider), typeof(BodyPartHurtbox));
+            var rightObject = new GameObject("frontLegR", typeof(BoxCollider), typeof(BodyPartHurtbox));
+            leftObject.transform.SetParent(root.transform, false);
+            rightObject.transform.SetParent(root.transform, false);
+            var left = leftObject.GetComponent<BodyPartHurtbox>();
+            var right = rightObject.GetComponent<BodyPartHurtbox>();
+            left.part = right.part = BodyPart.FrontLeg;
+            left.breakThreshold = right.breakThreshold = 9999f;
+            left.staggerThreshold = right.staggerThreshold = 100f;
+            left.toppleOnStagger = right.toppleOnStagger = true;
+            brain.RefreshHurtboxBindings();
+            yield return null;
+
+            try
+            {
+                left.Apply(1f, 60f);
+                Assert.AreEqual(60f, brain.GetAccumulatedStagger(BodyPart.FrontLeg), 0.001f);
+                Assert.AreNotEqual(VelkhanaState.Toppled, brain.CurrentState);
+
+                right.Apply(1f, 40f);
+                Assert.AreEqual(VelkhanaState.Toppled, brain.CurrentState,
+                    "left and right colliders must feed the same decoded BodyPart gauge");
+                Assert.AreEqual(VelkhanaToppleCause.StaggerThreshold, brain.CurrentToppleCause);
+                Assert.AreEqual(0f, brain.GetAccumulatedStagger(BodyPart.FrontLeg), 0.001f);
+                Assert.AreEqual(0f, left.AccumulatedStagger, 0.001f);
+                Assert.AreEqual(0f, right.AccumulatedStagger, 0.001f);
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+                Object.DestroyImmediate(hunter);
+            }
+        }
+
+        [UnityTest]
         public IEnumerator BrainTurnsAroundInsteadOfDeadlockingWhenTheHunterIsBehindIt()
         {
             var attack = MakeAttack(6, 2, 6, 4);
@@ -211,6 +337,8 @@ namespace VelkhanaSlice.PlayTests
         {
             var attack = MakeAttack(4, 3, 6, 2);
             attack.damage = 25f;
+            attack.hunterLaunchVelocity = new Vector3(0f, 7f, 8f);
+            attack.hunterKnockdownFrames = 30;
             attack.hitboxCenter = new Vector3(0f, 1f, 4f);
             attack.hitboxSize = new Vector3(6f, 3f, 10f);
 
@@ -252,6 +380,9 @@ namespace VelkhanaSlice.PlayTests
                     $"no damage. attacksStarted={attacksStarted} activeFrames={activeFramesSeen} overlaps={overlapHits}");
                 Assert.AreEqual(health.maxHealth - 25f, health.Current, 0.001f,
                     "an attack must land once, not once per active frame");
+                Assert.AreEqual(HunterController.State.Launched,
+                    health.GetComponent<HunterController>().CurrentState,
+                    "the accepted hit should apply its launch reaction once with the damage");
             }
             finally
             {
@@ -335,6 +466,11 @@ namespace VelkhanaSlice.PlayTests
             Assert.IsNotEmpty(brain.options, "brain has no attack options");
             Assert.IsNotEmpty(brain.armoredParts, "brain has no armoured parts");
 
+            var volumeDebug = Object.FindFirstObjectByType<CombatVolumeDebug>();
+            Assert.IsNotNull(volumeDebug, "runtime combat volume overlay is missing");
+            Assert.AreSame(hunter, volumeDebug.hunterController);
+            Assert.AreSame(brain, volumeDebug.brain);
+
             MonsterAttackOption node009 = null;
             foreach (var option in brain.options)
             {
@@ -392,6 +528,31 @@ namespace VelkhanaSlice.PlayTests
                 Assert.IsTrue(hurtbox.GetComponent<Collider>().isTrigger,
                     $"{hurtbox.name} collider must be a trigger");
             }
+
+            BodyPartHurtbox torso = System.Array.Find(
+                hurtboxes, part => part.part == BodyPart.Torso);
+            Assert.IsNotNull(torso);
+            Assert.IsTrue(torso.toppleOnBreak, "torso break should drive the configured break topple");
+            Assert.AreEqual(280f, torso.staggerThreshold, 0.001f);
+
+            BodyPartHurtbox head = System.Array.Find(
+                hurtboxes, part => part.part == BodyPart.Head);
+            Assert.IsNotNull(head);
+            Assert.IsFalse(head.toppleOnBreak, "head break is not the torso break-topple contract");
+            Assert.IsTrue(head.toppleOnStagger);
+            Assert.AreEqual(200f, head.staggerThreshold, 0.001f);
+
+            AttackDefinition rush = System.Array.Find(
+                brain.options.ToArray(), option => option.attack != null && option.attack.name == "VK_Rush")?.attack;
+            Assert.IsNotNull(rush);
+            Assert.IsTrue(rush.LaunchesHunter, "rush should carry a launch reaction");
+
+            AttackDefinition straightBreath = System.Array.Find(
+                brain.options.ToArray(), option => option.attack != null &&
+                                                   option.attack.name == "VK_StraightBreath")?.attack;
+            Assert.IsNotNull(straightBreath);
+            Assert.IsFalse(straightBreath.LaunchesHunter,
+                "launch reactions must remain scoped to the configured physical attacks");
 
             // The camera pitch has to stay inside the readable band the plan specifies.
             float pitch = hunter.aimCamera.transform.eulerAngles.x;

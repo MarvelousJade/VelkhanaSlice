@@ -34,6 +34,14 @@ namespace VelkhanaSlice.Monster
         RageTransition,
         Takeoff,
         Landing,
+        Toppled,
+    }
+
+    public enum VelkhanaToppleCause
+    {
+        None,
+        PartBreak,
+        StaggerThreshold,
     }
 
     public enum VelkhanaContext
@@ -273,12 +281,18 @@ namespace VelkhanaSlice.Monster
         public int armorBreaksToInterrupt = 2;
         public BodyPartHurtbox[] armoredParts = Array.Empty<BodyPartHurtbox>();
 
+        [Header("Topple reactions (frames @ 60 Hz)")]
+        [Min(1)] public int partBreakToppleFrames = 180;
+        [Min(1)] public int staggerToppleFrames = 180;
+        [Min(0)] public int toppleImmunityFrames = 30;
+
         [Header("Repetition")]
         [Range(0f, 1f)] public float repeatPenalty = 0.25f;
         [Range(0f, 1f)] public float recentHistoryPenalty = 0.65f;
 
         public AttackDefinition CurrentAttack { get; private set; }
         public int AttackFrame { get; private set; }
+        public int LastSimulatedAttackFrame { get; private set; } = -1;
         public VelkhanaState CurrentState { get; private set; } = VelkhanaState.Observe;
         public int StateFrame { get; private set; }
         public RangeBand DesiredBand { get; private set; } = RangeBand.Medium;
@@ -296,6 +310,12 @@ namespace VelkhanaSlice.Monster
         public float RageBuild => rageDamageThreshold <= 0f
             ? 0f
             : Mathf.Clamp01(_rageDamage / rageDamageThreshold);
+        public VelkhanaToppleCause CurrentToppleCause { get; private set; }
+        public bool IsToppled => CurrentState == VelkhanaState.Toppled;
+        public int ToppleFramesRemaining => IsToppled
+            ? Mathf.Max(0, _activeToppleFrames - StateFrame)
+            : 0;
+        public int ActiveToppleFrames => _activeToppleFrames;
 
         public event Action<ArmorStage> StageChanged;
         public event Action<VelkhanaState> StateChanged;
@@ -308,6 +328,8 @@ namespace VelkhanaSlice.Monster
         int _armorLockoutRemaining;
         int _rageFramesRemaining;
         int _rageCooldownRemaining;
+        int _activeToppleFrames;
+        int _toppleImmunityRemaining;
         float _rageDamage;
         float _orbitSign = 1f;
         bool _ragePending;
@@ -324,6 +346,8 @@ namespace VelkhanaSlice.Monster
         readonly Collider[] _overlapBuffer = new Collider[32];
         readonly HashSet<HunterHealth> _hitThisAttack = new HashSet<HunterHealth>();
         readonly List<BodyPartHurtbox> _subscribedParts = new List<BodyPartHurtbox>();
+        readonly Dictionary<BodyPart, float> _staggerByPart =
+            new Dictionary<BodyPart, float>();
 
         void Awake()
         {
@@ -370,6 +394,7 @@ namespace VelkhanaSlice.Monster
             foreach (BodyPartHurtbox part in unique)
             {
                 part.Damaged += OnPartDamaged;
+                part.Broken += OnPartBroken;
                 part.IceArmorShattered += OnArmorShattered;
                 _subscribedParts.Add(part);
             }
@@ -382,6 +407,7 @@ namespace VelkhanaSlice.Monster
                 BodyPartHurtbox part = _subscribedParts[i];
                 if (part == null) continue;
                 part.Damaged -= OnPartDamaged;
+                part.Broken -= OnPartBroken;
                 part.IceArmorShattered -= OnArmorShattered;
             }
 
@@ -411,6 +437,9 @@ namespace VelkhanaSlice.Monster
                     break;
                 case VelkhanaState.Landing:
                     TickLanding();
+                    break;
+                case VelkhanaState.Toppled:
+                    TickToppled();
                     break;
                 default:
                     TickObserve();
@@ -557,6 +586,7 @@ namespace VelkhanaSlice.Monster
 
             CurrentAttack = attack;
             AttackFrame = 0;
+            LastSimulatedAttackFrame = -1;
             _committedAimDirection = DirectionToHunter();
             _hitThisAttack.Clear();
             EnterState(VelkhanaState.Attacking);
@@ -617,6 +647,16 @@ namespace VelkhanaSlice.Monster
             else EnterState(VelkhanaState.Observe);
         }
 
+        void TickToppled()
+        {
+            if (++StateFrame < Mathf.Max(1, _activeToppleFrames)) return;
+
+            CurrentToppleCause = VelkhanaToppleCause.None;
+            _activeToppleFrames = 0;
+            _toppleImmunityRemaining = Mathf.Max(0, toppleImmunityFrames);
+            EnterState(VelkhanaState.Observe);
+        }
+
         bool TryEnterPendingRage()
         {
             if (!_ragePending || CurrentState == VelkhanaState.RageTransition) return false;
@@ -632,6 +672,7 @@ namespace VelkhanaSlice.Monster
                 return;
             }
 
+            LastSimulatedAttackFrame = AttackFrame;
             int recoveryStart = CurrentAttack.startupFrames + CurrentAttack.activeFrames;
             if (AttackFrame >= recoveryStart && CurrentState != VelkhanaState.Recovery)
                 EnterState(VelkhanaState.Recovery);
@@ -804,7 +845,10 @@ namespace VelkhanaSlice.Monster
             {
                 HunterHealth health = _overlapBuffer[i].GetComponentInParent<HunterHealth>();
                 if (health == null || !_hitThisAttack.Add(health)) continue;
-                health.TakeDamage(attack.damage);
+                Vector3 launch = attack.LaunchesHunter
+                    ? transform.rotation * attack.hunterLaunchVelocity
+                    : Vector3.zero;
+                health.TakeDamage(attack.damage, launch, attack.hunterKnockdownFrames);
             }
         }
 
@@ -831,6 +875,7 @@ namespace VelkhanaSlice.Monster
         {
             if (_rageCooldownRemaining > 0) _rageCooldownRemaining--;
             if (_armorLockoutRemaining > 0) _armorLockoutRemaining--;
+            if (_toppleImmunityRemaining > 0) _toppleImmunityRemaining--;
 
             if (enraged && _rageFramesRemaining > 0 && CurrentState != VelkhanaState.RageTransition)
             {
@@ -1487,9 +1532,65 @@ namespace VelkhanaSlice.Monster
             return flat.sqrMagnitude > 0.001f ? flat.normalized : transform.forward;
         }
 
-        void OnPartDamaged(BodyPartHurtbox part, float damage)
+        void OnPartDamaged(BodyPartHurtbox part, float damage, float stagger)
         {
             ApplyBossDamage(damage);
+
+            if (part == null || stagger <= 0f || part.staggerThreshold <= 0f)
+                return;
+
+            float accumulated = GetAccumulatedStagger(part.part) + stagger;
+            _staggerByPart[part.part] = accumulated;
+            if (accumulated < part.staggerThreshold) return;
+
+            // The decoded flinch table groups left/right colliders by BodyPart. Consume only that
+            // shared group; all other group gauges remain banked.
+            ConsumeStaggerGroup(part.part);
+            if (part.toppleOnStagger && CanBeginTopple())
+                BeginTopple(VelkhanaToppleCause.StaggerThreshold, staggerToppleFrames);
+        }
+
+        public float GetAccumulatedStagger(BodyPart part)
+        {
+            return _staggerByPart.TryGetValue(part, out float value) ? value : 0f;
+        }
+
+        void ConsumeStaggerGroup(BodyPart bodyPart)
+        {
+            _staggerByPart[bodyPart] = 0f;
+            for (int i = 0; i < _subscribedParts.Count; i++)
+            {
+                BodyPartHurtbox hurtbox = _subscribedParts[i];
+                if (hurtbox != null && hurtbox.part == bodyPart) hurtbox.ConsumeStagger();
+            }
+        }
+
+        void OnPartBroken(BodyPartHurtbox part)
+        {
+            if (part == null || !part.toppleOnBreak || !CanBeginTopple()) return;
+            BeginTopple(VelkhanaToppleCause.PartBreak, partBreakToppleFrames);
+        }
+
+        bool CanBeginTopple()
+        {
+            return CurrentHealth > 0f && CurrentState != VelkhanaState.Toppled &&
+                   _toppleImmunityRemaining <= 0;
+        }
+
+        void BeginTopple(VelkhanaToppleCause cause, int durationFrames)
+        {
+            // A topple is an interrupt, not a completed action sequence: no cooldown/history/phase
+            // completion is registered here and no pending follow-up survives the knockdown.
+            CurrentAttack = null;
+            AttackFrame = 0;
+            _hitThisAttack.Clear();
+            _pendingTakeoffOption = null;
+            IsAirborne = false;
+            ClearSequence();
+
+            CurrentToppleCause = cause;
+            _activeToppleFrames = Mathf.Max(1, durationFrames);
+            EnterState(VelkhanaState.Toppled);
         }
 
         public void ApplyBossDamage(float damage)
@@ -1509,6 +1610,9 @@ namespace VelkhanaSlice.Monster
         {
             CurrentHealth = Mathf.Max(1f, maxHealth);
             _rageDamage = 0f;
+            _staggerByPart.Clear();
+            for (int i = 0; i < _subscribedParts.Count; i++)
+                if (_subscribedParts[i] != null) _subscribedParts[i].ConsumeStagger();
             HealthChanged?.Invoke(CurrentHealth, maxHealth);
         }
 

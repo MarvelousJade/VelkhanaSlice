@@ -19,6 +19,8 @@ MonoBehaviour:
   cancelWindowStart: 16
   damage: 30
   staggerDamage: 20
+  hunterLaunchVelocity: {x: 0, y: 0, z: 0}
+  hunterKnockdownFrames: 60
   chargeMultipliers:
   - 1
   - 1.4

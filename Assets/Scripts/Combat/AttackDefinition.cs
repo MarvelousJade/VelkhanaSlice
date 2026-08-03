@@ -25,6 +25,13 @@ namespace VelkhanaSlice.Combat
         public float damage = 100f;
         public float staggerDamage = 40f;
 
+        [Header("Hunter hit reaction")]
+        [Tooltip("Velocity applied to the hunter in attacker-local space. Zero means this attack does not launch.")]
+        public Vector3 hunterLaunchVelocity;
+
+        [Tooltip("Grounded frames before a launched hunter regains control after landing.")]
+        [Min(0)] public int hunterKnockdownFrames = 60;
+
         [Tooltip("Damage multiplier per charge level. Index 0 is uncharged.")]
         public float[] chargeMultipliers = { 1f, 1.4f, 1.8f, 2.4f };
 
@@ -40,6 +47,7 @@ namespace VelkhanaSlice.Combat
         public Vector3 hitboxSize = new Vector3(2.5f, 2f, 2.5f);
 
         public bool HasHitbox => hitboxSize.x > 0f && hitboxSize.y > 0f && hitboxSize.z > 0f;
+        public bool LaunchesHunter => hunterLaunchVelocity.sqrMagnitude > 0.001f;
 
         [Header("Motion")]
         [Tooltip("Forward displacement across the attack, sampled from 0 to 1 over its total length.")]

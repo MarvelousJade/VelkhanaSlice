@@ -766,7 +766,8 @@ namespace VelkhanaSlice.PlayTests
         [UnityTest]
         public IEnumerator ChargeRejectsRollAndTacklesAdvanceToDifferentTiers()
         {
-            var hunter = MakeHunter(out var root);
+            var hunter = MakeHunter(out var root, true);
+            var health = root.GetComponent<HunterHealth>();
             try
             {
                 yield return DrawWeapon(hunter);
@@ -783,6 +784,11 @@ namespace VelkhanaSlice.PlayTests
                 Assert.AreEqual(HunterController.Wp00Node.Tackle, hunter.CurrentNode);
                 Assert.AreSame(hunter.tackle, hunter.CurrentAttack);
                 Assert.IsTrue(hunter.HasHyperArmor);
+
+                Assert.IsTrue(health.TakeDamage(20f, new Vector3(0f, 8f, 6f), 30));
+                Assert.AreEqual(HunterController.State.Attacking, hunter.CurrentState);
+                Assert.IsTrue(hunter.HasHyperArmor,
+                    "tackle hyper armour should resist launch as well as ordinary interruption");
 
                 // Release and press again to create the Kick/Tackle-style Triangle edge.
                 yield return Step();
@@ -872,11 +878,13 @@ namespace VelkhanaSlice.PlayTests
             {
                 yield return Step(guard: true);
                 float before = health.Current;
-                Assert.IsTrue(health.TakeDamage(100f));
+                Assert.IsTrue(health.TakeDamage(100f, new Vector3(0f, 8f, 6f), 30));
                 Assert.AreEqual(
                     before - 100f * hunter.guardDamageMultiplier,
                     health.Current,
                     0.001f);
+                Assert.AreEqual(HunterController.State.Guarding, hunter.CurrentState,
+                    "a guarded launch hit should not knock the hunter out of guard");
 
                 yield return Step();
                 // Manually sheathe through the configured common-locomotion transition.
@@ -902,6 +910,143 @@ namespace VelkhanaSlice.PlayTests
             }
             finally
             {
+                Object.DestroyImmediate(root);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator InvulnerableRollRejectsDamageAndLaunchReaction()
+        {
+            var hunter = MakeHunter(out var root, true);
+            var health = root.GetComponent<HunterHealth>();
+            try
+            {
+                yield return Step(dodge: true, move: Vector2.up);
+                while (hunter.StateFrame < hunter.rollInvulnStart)
+                    yield return Step(move: Vector2.up);
+
+                Assert.IsTrue(hunter.IsInvulnerable);
+                float before = health.Current;
+                Assert.IsFalse(health.TakeDamage(50f, new Vector3(0f, 8f, 6f), 30));
+                Assert.AreEqual(before, health.Current, 0.001f);
+                Assert.AreEqual(HunterController.State.Rolling, hunter.CurrentState,
+                    "a rejected hit must not apply its launch metadata");
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator OneSwingSelectsOneHitzoneAcrossOverlappingBodyParts()
+        {
+            const int hurtboxLayer = 31;
+            var hunter = MakeHunter(out var hunterRoot);
+            var monsterRoot = new GameObject("SharedPartMonster");
+            var brain = monsterRoot.AddComponent<VelkhanaSlice.Monster.VelkhanaBrain>();
+            brain.enabled = false;
+
+            var leftObject = new GameObject(
+                "FrontLegL", typeof(BoxCollider), typeof(BodyPartHurtbox));
+            var rightObject = new GameObject(
+                "FrontLegR", typeof(BoxCollider), typeof(BodyPartHurtbox));
+            var torsoObject = new GameObject(
+                "Torso", typeof(BoxCollider), typeof(BodyPartHurtbox));
+            leftObject.layer = rightObject.layer = torsoObject.layer = hurtboxLayer;
+            leftObject.transform.SetParent(monsterRoot.transform, false);
+            rightObject.transform.SetParent(monsterRoot.transform, false);
+            torsoObject.transform.SetParent(monsterRoot.transform, false);
+            leftObject.transform.position = new Vector3(-0.35f, 1f, 1.5f);
+            rightObject.transform.position = new Vector3(0.35f, 1f, 1.5f);
+            torsoObject.transform.position = new Vector3(0f, 1f, 2.5f);
+
+            BodyPartHurtbox left = leftObject.GetComponent<BodyPartHurtbox>();
+            BodyPartHurtbox right = rightObject.GetComponent<BodyPartHurtbox>();
+            BodyPartHurtbox torso = torsoObject.GetComponent<BodyPartHurtbox>();
+            left.part = right.part = BodyPart.FrontLeg;
+            torso.part = BodyPart.Torso;
+            left.breakThreshold = right.breakThreshold = 9999f;
+            torso.breakThreshold = 9999f;
+            left.staggerThreshold = right.staggerThreshold = 9999f;
+            torso.staggerThreshold = 9999f;
+            leftObject.GetComponent<BoxCollider>().isTrigger = true;
+            rightObject.GetComponent<BoxCollider>().isTrigger = true;
+            torsoObject.GetComponent<BoxCollider>().isTrigger = true;
+
+            hunter.hurtboxLayers = 1 << hurtboxLayer;
+            hunter.wideSlash.hitboxCenter = new Vector3(0f, 1f, 1.5f);
+            hunter.wideSlash.hitboxSize = new Vector3(3f, 3f, 3f);
+            hunter.wideSlash.staggerDamage = 60f;
+            brain.RefreshHurtboxBindings();
+
+            try
+            {
+                yield return DrawWeapon(hunter);
+                float healthBefore = brain.CurrentHealth;
+                yield return Step(secondary: true);
+                while (hunter.CurrentState == HunterController.State.Attacking &&
+                       hunter.AttackFrame <= hunter.wideSlash.startupFrames)
+                    yield return Step();
+
+                Assert.AreEqual(healthBefore - hunter.wideSlash.damage, brain.CurrentHealth, 0.001f,
+                    "overlapping left/right colliders must not apply duplicate boss damage");
+                Assert.AreEqual(60f, brain.GetAccumulatedStagger(BodyPart.FrontLeg), 0.001f,
+                    "one authored swing must feed the shared BodyPart gauge once");
+                Assert.AreEqual(0f, brain.GetAccumulatedStagger(BodyPart.Torso), 0.001f,
+                    "one authored swing must not advance several decoded part gauges");
+            }
+            finally
+            {
+                Object.DestroyImmediate(monsterRoot);
+                Object.DestroyImmediate(hunterRoot);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator GroundedKnockdownRejectsRehitAndRecoversControl()
+        {
+            var hunter = MakeHunter(out var root, true);
+            var health = root.GetComponent<HunterHealth>();
+            var floor = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            floor.name = "KnockdownFloor";
+            floor.transform.position = new Vector3(0f, -0.5f, 0f);
+            floor.transform.localScale = new Vector3(20f, 1f, 20f);
+            root.transform.position = new Vector3(0f, 1f, 0f);
+            Physics.SyncTransforms();
+
+            try
+            {
+                yield return null;
+                hunter.Launch(new Vector3(0f, 3f, 0f), 4);
+                float airborneHealth = health.Current;
+                Assert.IsTrue(health.TakeDamage(5f, new Vector3(0f, 50f, 0f), 1000));
+                Assert.AreEqual(airborneHealth - 5f, health.Current, 0.001f,
+                    "an airborne hunter remains damageable");
+                Assert.IsFalse(hunter.IsKnockedDown);
+
+                int waited = 0;
+                while (!hunter.IsKnockedDown && waited++ < 120)
+                    yield return new WaitForFixedUpdate();
+
+                Assert.IsTrue(hunter.IsKnockedDown,
+                    "the second hit restarted the airborne arc instead of preserving the first launch; " +
+                    $"state={hunter.CurrentState} frame={hunter.StateFrame} y={root.transform.position.y:0.000} " +
+                    $"grounded={root.GetComponent<CharacterController>().isGrounded}");
+                float before = health.Current;
+                Assert.IsFalse(health.TakeDamage(25f, new Vector3(0f, 6f, 4f), 40));
+                Assert.AreEqual(before, health.Current, 0.001f);
+                Assert.IsTrue(hunter.IsKnockedDown,
+                    "a rehit must not restart the launch or grounded recovery timer");
+
+                waited = 0;
+                while (hunter.CurrentState != HunterController.State.Free && waited++ < 10)
+                    yield return new WaitForFixedUpdate();
+                Assert.AreEqual(HunterController.State.Free, hunter.CurrentState);
+            }
+            finally
+            {
+                Object.DestroyImmediate(floor);
                 Object.DestroyImmediate(root);
             }
         }

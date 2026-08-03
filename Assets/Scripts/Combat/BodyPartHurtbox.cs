@@ -28,6 +28,16 @@ namespace VelkhanaSlice.Combat
         [Tooltip("Accumulated damage that breaks this part. Wings and horns break early, the torso topples.")]
         public float breakThreshold = 400f;
 
+        [Header("Monster reactions")]
+        [Tooltip("Breaking this specific part knocks the monster down. Keep cosmetic breaks disabled.")]
+        public bool toppleOnBreak;
+
+        [Tooltip("Shared BodyPart-group stagger threshold. Zero disables repeat-hit reactions for this group.")]
+        [Min(0f)] public float staggerThreshold;
+
+        [Tooltip("Crossing this group's stagger threshold causes a full topple instead of only resetting the gauge.")]
+        public bool toppleOnStagger;
+
         [Tooltip("Ice armour covering this part. Zero means unarmoured.")]
         public float iceArmorHealth;
 
@@ -38,7 +48,7 @@ namespace VelkhanaSlice.Combat
 
         public event Action<BodyPartHurtbox> Broken;
         public event Action<BodyPartHurtbox> IceArmorShattered;
-        public event Action<BodyPartHurtbox, float> Damaged;
+        public event Action<BodyPartHurtbox, float, float> Damaged;
 
         /// <summary>Applies damage that has already been scaled by attack and charge level.</summary>
         public float Apply(float damage, float stagger)
@@ -49,7 +59,7 @@ namespace VelkhanaSlice.Combat
             {
                 iceArmorHealth = Mathf.Max(0f, iceArmorHealth - dealt);
                 if (iceArmorHealth <= 0f) IceArmorShattered?.Invoke(this);
-                Damaged?.Invoke(this, dealt);
+                Damaged?.Invoke(this, dealt, 0f);
                 return dealt;
             }
 
@@ -62,7 +72,7 @@ namespace VelkhanaSlice.Combat
                 Broken?.Invoke(this);
             }
 
-            Damaged?.Invoke(this, dealt);
+            Damaged?.Invoke(this, dealt, stagger);
             return dealt;
         }
 

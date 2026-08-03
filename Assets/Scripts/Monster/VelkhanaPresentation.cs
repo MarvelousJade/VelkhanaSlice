@@ -181,6 +181,8 @@ namespace VelkhanaSlice.Monster
                 ApplyRepositionPose();
             else if (_brain.CurrentState == VelkhanaState.RageTransition)
                 ApplyRagePose();
+            else if (_brain.CurrentState == VelkhanaState.Toppled)
+                ApplyTopplePose();
 
             ApplyPhaseGlow();
         }
@@ -279,6 +281,28 @@ namespace VelkhanaSlice.Monster
             Rotate(wingLPivot, new Vector3(-16f * roar, 0f, 82f * roar));
             Rotate(wingRPivot, new Vector3(-16f * roar, 0f, -82f * roar));
             Rotate(tailRoot, new Vector3(18f * roar, shake * 8f, 0f));
+        }
+
+        void ApplyTopplePose()
+        {
+            float fallFrames = Mathf.Min(22f, Mathf.Max(1f, _brain.ActiveToppleFrames * 0.15f));
+            float fall = Smooth(Mathf.Clamp01(_brain.StateFrame / fallFrames));
+            float settle = Mathf.Sin(_brain.StateFrame * 0.55f) *
+                           Mathf.Clamp01(1f - _brain.StateFrame / 40f);
+
+            Move(visualRoot, new Vector3(0.55f * fall, -0.72f * fall, 0f));
+            Rotate(visualRoot, new Vector3(0f, 0f, 76f * fall + settle * 2f));
+            Rotate(torsoPivot, new Vector3(12f * fall, 0f, 0f));
+            Rotate(neckPivot, new Vector3(28f * fall, 0f, -10f * fall));
+            Rotate(headPivot, new Vector3(-24f * fall, 0f, 0f));
+            Rotate(wingLPivot, new Vector3(18f * fall, 26f * fall, -68f * fall));
+            Rotate(wingRPivot, new Vector3(18f * fall, -26f * fall, 68f * fall));
+            Rotate(frontLegLPivot, new Vector3(-58f * fall, 0f, 0f));
+            Rotate(frontLegRPivot, new Vector3(-42f * fall, 0f, 0f));
+            Rotate(rearLegLPivot, new Vector3(48f * fall, 0f, 0f));
+            Rotate(rearLegRPivot, new Vector3(36f * fall, 0f, 0f));
+            Rotate(tailRoot, new Vector3(-18f * fall, 24f * fall, 0f));
+            Rotate(tailMiddle, new Vector3(0f, -34f * fall, 0f));
         }
 
         void ApplyAttackPose(AttackDefinition attack, int frame)

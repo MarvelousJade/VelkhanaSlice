@@ -16,6 +16,14 @@ namespace VelkhanaSlice.DebugTools
         public VelkhanaBrain brain;
 
         GUIStyle _label;
+        CombatVolumeDebug _volumeDebug;
+
+        void Awake()
+        {
+            _volumeDebug = GetComponent<CombatVolumeDebug>();
+            if (_volumeDebug == null) _volumeDebug = gameObject.AddComponent<CombatVolumeDebug>();
+            _volumeDebug.Bind(health, hunterController, brain);
+        }
 
         void OnGUI()
         {
@@ -45,6 +53,9 @@ namespace VelkhanaSlice.DebugTools
                     $"pos({p.x:0.0},{p.z:0.0})  attack {attack}", _label);
             }
 
+            GUI.Label(new Rect(840f, 50f, 420f, 24f),
+                $"F3 volumes {(_volumeDebug != null && _volumeDebug.Visible ? "ON" : "OFF")}", _label);
+
             if (brain != null)
             {
                 string attack = brain.CurrentAttack != null
@@ -58,7 +69,8 @@ namespace VelkhanaSlice.DebugTools
                     : string.Empty;
                 GUI.Label(new Rect(20f, 76f, 800f, 24f),
                     $"velkhana {brain.CurrentState} f{brain.StateFrame}  {brain.CurrentContext}  " +
-                    $"{brain.CombatMode}/{brain.stage}  airborne {brain.IsAirborne}", _label);
+                    $"{brain.CombatMode}/{brain.stage}  airborne {brain.IsAirborne}  " +
+                    $"topple {brain.CurrentToppleCause} {brain.ToppleFramesRemaining}f", _label);
                 GUI.Label(new Rect(20f, 102f, 1500f, 24f),
                     $"boss HP {brain.CurrentHealth:0}/{brain.maxHealth:0}  " +
                     $"enraged {brain.enraged} rage {brain.RageBuild:P0}  " +
@@ -68,9 +80,12 @@ namespace VelkhanaSlice.DebugTools
                 float y = 128f;
                 foreach (var part in brain.GetComponentsInChildren<BodyPartHurtbox>())
                 {
-                    if (!part.IsBroken && part.AccumulatedDamage <= 0f) continue;
-                    GUI.Label(new Rect(20f, y, 600f, 22f),
-                        $"{part.part} {part.AccumulatedDamage:0}{(part.IsBroken ? "  BROKEN" : "")}", _label);
+                    float groupStagger = brain.GetAccumulatedStagger(part.part);
+                    if (!part.IsBroken && part.AccumulatedDamage <= 0f && groupStagger <= 0f) continue;
+                    GUI.Label(new Rect(20f, y, 720f, 22f),
+                        $"{part.name} damage {part.AccumulatedDamage:0}/{part.breakThreshold:0}  " +
+                        $"shared {part.part} stagger {groupStagger:0}/{part.staggerThreshold:0}" +
+                        $"{(part.IsBroken ? "  BROKEN" : "")}", _label);
                     y += 22f;
                 }
             }

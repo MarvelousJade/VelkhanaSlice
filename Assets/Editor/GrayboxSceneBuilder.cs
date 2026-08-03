@@ -71,6 +71,9 @@ namespace VelkhanaSlice.EditorTools
             hud.health = hunter.GetComponent<HunterHealth>();
             hud.hunterController = hunter.GetComponent<HunterController>();
             hud.brain = velkhana.GetComponent<VelkhanaBrain>();
+            var volumeDebug = hud.GetComponent<DebugTools.CombatVolumeDebug>() ??
+                              hud.gameObject.AddComponent<DebugTools.CombatVolumeDebug>();
+            volumeDebug.Bind(hud.health, hud.hunterController, hud.brain);
 
             EditorSceneManager.SaveScene(scene, ScenePath);
             EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(ScenePath, true) };
@@ -129,6 +132,8 @@ namespace VelkhanaSlice.EditorTools
             attack.cancelWindowStart = -1;
             attack.damage = damage;
             attack.staggerDamage = stagger;
+            attack.hunterLaunchVelocity = Vector3.zero;
+            attack.hunterKnockdownFrames = 60;
             attack.chargeMultipliers = new[] { 1f, 1.4f, 1.8f, 2.4f };
             attack.hitboxCenter = hitboxCenter;
             attack.hitboxSize = hitboxSize;
@@ -404,11 +409,21 @@ namespace VelkhanaSlice.EditorTools
 
                 Rush = Attack("VK_Rush", 34, 16, 46, 20, 64f, 34f,
                     new Vector3(0f, 1.2f, 4.5f), new Vector3(3.4f, 2.6f, 8.0f),
-                    a => a.forwardMotionScale = 9.5f),
+                    a =>
+                    {
+                        a.forwardMotionScale = 9.5f;
+                        a.hunterLaunchVelocity = new Vector3(0f, 7f, 9f);
+                        a.hunterKnockdownFrames = 75;
+                    }),
 
                 Rush2 = Attack("VK_Rush2", 28, 13, 38, 18, 58f, 30f,
                     new Vector3(0f, 1.2f, 4.0f), new Vector3(3.2f, 2.5f, 7.0f),
-                    a => a.forwardMotionScale = 7.0f),
+                    a =>
+                    {
+                        a.forwardMotionScale = 7.0f;
+                        a.hunterLaunchVelocity = new Vector3(0f, 6.5f, 8f);
+                        a.hunterKnockdownFrames = 70;
+                    }),
 
                 BackStepPierce = Attack("VK_BackStepPierce", 30, 7, 34, 18, 52f, 28f,
                     new Vector3(0f, 1.2f, 5.0f), new Vector3(2.2f, 2.2f, 7.0f),
@@ -458,7 +473,12 @@ namespace VelkhanaSlice.EditorTools
                 FlyTailStingToGround = Attack(
                     "VK_FlyTailStingToGround", 36, 8, 34, 19, 56f, 34f,
                     new Vector3(0f, 1f, 5f), new Vector3(2.4f, 2.5f, 7f),
-                    a => a.forwardMotionScale = 6.5f),
+                    a =>
+                    {
+                        a.forwardMotionScale = 6.5f;
+                        a.hunterLaunchVelocity = new Vector3(0f, 9f, 6f);
+                        a.hunterKnockdownFrames = 90;
+                    }),
             };
         }
 
@@ -650,12 +670,19 @@ namespace VelkhanaSlice.EditorTools
             public readonly float Multiplier;
             public readonly float BreakThreshold;
             public readonly bool Armored;
+            public readonly bool ToppleOnBreak;
+            public readonly float StaggerThreshold;
+            public readonly bool ToppleOnStagger;
 
             public PartSpec(string name, BodyPart part, Vector3 position, Vector3 size,
-                float multiplier, float breakThreshold, bool armored)
+                float multiplier, float breakThreshold, bool armored,
+                bool toppleOnBreak, float staggerThreshold, bool toppleOnStagger)
             {
                 Name = name; Part = part; Position = position; Size = size;
                 Multiplier = multiplier; BreakThreshold = breakThreshold; Armored = armored;
+                ToppleOnBreak = toppleOnBreak;
+                StaggerThreshold = staggerThreshold;
+                ToppleOnStagger = toppleOnStagger;
             }
         }
 
@@ -814,15 +841,17 @@ namespace VelkhanaSlice.EditorTools
             // Head takes the most damage, which is what makes it the Great Sword's punish target.
             var specs = new[]
             {
-                new PartSpec("Head",     BodyPart.Head,     new Vector3(0f, 2.2f, 4.2f),    new Vector3(1.2f, 1.2f, 1.8f), 1.7f, 320f, true),
-                new PartSpec("Torso",    BodyPart.Torso,    new Vector3(0f, 2.0f, 0.5f),    new Vector3(2.6f, 2.4f, 4.5f), 1.0f, 900f, false),
-                new PartSpec("WingL",    BodyPart.Wing,     new Vector3(-2.6f, 2.8f, 0.5f), new Vector3(3.0f, 0.3f, 2.6f), 0.8f, 400f, true),
-                new PartSpec("WingR",    BodyPart.Wing,     new Vector3(2.6f, 2.8f, 0.5f),  new Vector3(3.0f, 0.3f, 2.6f), 0.8f, 400f, true),
-                new PartSpec("FrontLegL",BodyPart.FrontLeg, new Vector3(-1.3f, 0.9f, 2.4f), new Vector3(0.7f, 1.8f, 0.7f), 0.9f, 350f, false),
-                new PartSpec("FrontLegR",BodyPart.FrontLeg, new Vector3(1.3f, 0.9f, 2.4f),  new Vector3(0.7f, 1.8f, 0.7f), 0.9f, 350f, false),
-                new PartSpec("RearLegL", BodyPart.RearLeg,  new Vector3(-1.4f, 0.9f, -1.4f),new Vector3(0.8f, 1.8f, 0.8f), 0.85f, 380f, false),
-                new PartSpec("RearLegR", BodyPart.RearLeg,  new Vector3(1.4f, 0.9f, -1.4f), new Vector3(0.8f, 1.8f, 0.8f), 0.85f, 380f, false),
-                new PartSpec("Tail",     BodyPart.Tail,     new Vector3(0f, 1.8f, -4.5f),   new Vector3(0.8f, 0.8f, 5.0f), 0.75f, 420f, true),
+                // Decoded flinch thresholds are shared by BodyPart (left/right contribute together).
+                // Full repeat-hit topples are intentionally limited to the project's punish groups.
+                new PartSpec("Head",     BodyPart.Head,     new Vector3(0f, 2.2f, 4.2f),    new Vector3(1.2f, 1.2f, 1.8f), 1.7f, 320f, true,  false, 200f, true),
+                new PartSpec("Torso",    BodyPart.Torso,    new Vector3(0f, 2.0f, 0.5f),    new Vector3(2.6f, 2.4f, 4.5f), 1.0f, 900f, false, true,  280f, false),
+                new PartSpec("WingL",    BodyPart.Wing,     new Vector3(-2.6f, 2.8f, 0.5f), new Vector3(3.0f, 0.3f, 2.6f), 0.8f, 400f, true,  false, 160f, false),
+                new PartSpec("WingR",    BodyPart.Wing,     new Vector3(2.6f, 2.8f, 0.5f),  new Vector3(3.0f, 0.3f, 2.6f), 0.8f, 400f, true,  false, 160f, false),
+                new PartSpec("FrontLegL",BodyPart.FrontLeg, new Vector3(-1.3f, 0.9f, 2.4f), new Vector3(0.7f, 1.8f, 0.7f), 0.9f, 350f, false, false, 240f, true),
+                new PartSpec("FrontLegR",BodyPart.FrontLeg, new Vector3(1.3f, 0.9f, 2.4f),  new Vector3(0.7f, 1.8f, 0.7f), 0.9f, 350f, false, false, 240f, true),
+                new PartSpec("RearLegL", BodyPart.RearLeg,  new Vector3(-1.4f, 0.9f, -1.4f),new Vector3(0.8f, 1.8f, 0.8f), 0.85f, 380f, false, false, 200f, false),
+                new PartSpec("RearLegR", BodyPart.RearLeg,  new Vector3(1.4f, 0.9f, -1.4f), new Vector3(0.8f, 1.8f, 0.8f), 0.85f, 380f, false, false, 200f, false),
+                new PartSpec("Tail",     BodyPart.Tail,     new Vector3(0f, 1.8f, -4.5f),   new Vector3(0.8f, 0.8f, 5.0f), 0.75f, 420f, true,  false, 240f, false),
             };
 
             // Hurtboxes are triggers, so without a solid body the hunter walks straight through her.
@@ -851,6 +880,9 @@ namespace VelkhanaSlice.EditorTools
                 hurtbox.damageMultiplier = spec.Multiplier;
                 hurtbox.breakThreshold = spec.BreakThreshold;
                 hurtbox.iceArmorHealth = 0f;
+                hurtbox.toppleOnBreak = spec.ToppleOnBreak;
+                hurtbox.staggerThreshold = spec.StaggerThreshold;
+                hurtbox.toppleOnStagger = spec.ToppleOnStagger;
 
                 if (spec.Armored) armored.Add(hurtbox);
             }

@@ -22,6 +22,7 @@ namespace VelkhanaSlice.Hunter
             Attacking,
             Guarding,
             Rolling,
+            Launched,
         }
 
         /// <summary>
@@ -101,6 +102,10 @@ namespace VelkhanaSlice.Hunter
         public int rollInvulnStart = 4;
         public int rollInvulnEnd = 16;
 
+        [Header("Launched recovery")]
+        [Tooltip("Downward acceleration while an attack has launched the hunter.")]
+        public float launchGravity = -22f;
+
         [Header("Sheathing (frames @ 60 Hz)")]
         public int drawFrames = 20;
         public int sheatheFrames = 26;
@@ -176,6 +181,9 @@ namespace VelkhanaSlice.Hunter
             CurrentState == State.Attacking &&
             CurrentAttack != null &&
             CurrentAttack.hyperArmor;
+        public bool IsLaunched => CurrentState == State.Launched;
+        public bool IsKnockedDown => IsLaunched && _landedFromLaunch;
+        public int LastSimulatedAttackFrame { get; private set; } = -1;
 
         CharacterController _cc;
         int _stateFrame;
@@ -187,6 +195,10 @@ namespace VelkhanaSlice.Hunter
         float _verticalVelocity;
         bool _previousHitConnected;
         bool _currentAttackConnected;
+        bool _landedFromLaunch;
+        int _launchGroundedFrames;
+        int _launchRecoveryFrames;
+        Vector3 _launchVelocity;
         Vector3 _aimDirection = Vector3.forward;
         CoreInput _bufferedInput;
 
@@ -247,6 +259,7 @@ namespace VelkhanaSlice.Hunter
                 case State.Attacking: TickAttacking(); break;
                 case State.Guarding: TickGuarding(); break;
                 case State.Rolling: TickRolling(); break;
+                case State.Launched: TickLaunched(); break;
             }
 
             ClearEdgeInput();
@@ -548,6 +561,7 @@ namespace VelkhanaSlice.Hunter
             // WP00 attacks do not permit free analog walking. During the authored tracking window,
             // directional input only selects the heading for the attack's own forward motion; once
             // tracking closes, both facing and the root-motion trajectory stay committed.
+            LastSimulatedAttackFrame = AttackFrame;
             if (attack.CanTrack(AttackFrame)) FaceMoveOrAim();
 
             float step = attack.ForwardStep(AttackFrame);
@@ -658,6 +672,7 @@ namespace VelkhanaSlice.Hunter
             CurrentNode = node;
             CurrentState = State.Attacking;
             AttackFrame = 0;
+            LastSimulatedAttackFrame = -1;
             _stateFrame = 0;
             _bufferedInput = CoreInput.None;
             _hitThisSwing.Clear();
@@ -949,19 +964,38 @@ namespace VelkhanaSlice.Hunter
 
         void CheckHits(AttackDefinition attack)
         {
+            // Each Great Sword AttackDefinition represents one authored weapon hit. The overlap box
+            // may touch several anatomical triggers at once, but MHW resolves one hitzone rather
+            // than damaging every intersected body part.
+            if (_hitThisSwing.Count > 0) return;
+
             int count = AttackHitbox.Overlap(transform, attack, hurtboxLayers, _overlapBuffer);
+            BodyPartHurtbox selected = null;
+            float selectedDistance = float.PositiveInfinity;
 
             for (int i = 0; i < count; i++)
             {
                 var hurtbox = _overlapBuffer[i].GetComponentInParent<BodyPartHurtbox>();
-                if (hurtbox == null || !_hitThisSwing.Add(hurtbox)) continue;
+                if (hurtbox == null) continue;
 
-                HitResult result =
-                    DamageResolver.Resolve(
-                        attack,
-                        ChargeLevel,
-                        _previousHitConnected,
-                        hurtbox);
+                Vector3 contact = _overlapBuffer[i].ClosestPoint(transform.position);
+                float distance = (contact - transform.position).sqrMagnitude;
+                if (distance > selectedDistance) continue;
+                if (Mathf.Approximately(distance, selectedDistance) && selected != null &&
+                    hurtbox.GetInstanceID() >= selected.GetInstanceID()) continue;
+
+                selected = hurtbox;
+                selectedDistance = distance;
+            }
+
+            if (selected != null)
+            {
+                _hitThisSwing.Add(selected);
+                HitResult result = DamageResolver.Resolve(
+                    attack,
+                    ChargeLevel,
+                    _previousHitConnected,
+                    selected);
                 _previousHitConnected = result.Connected;
                 _currentAttackConnected |= result.Connected;
                 _hitstopFrames = Mathf.Max(_hitstopFrames, result.HitstopFrames);
@@ -978,6 +1012,40 @@ namespace VelkhanaSlice.Hunter
         {
             if (HasHyperArmor || CurrentState != State.Attacking) return;
             EndCombo();
+        }
+
+        /// <summary>Interrupts combat and applies a deterministic CharacterController launch.</summary>
+        public void Launch(Vector3 worldVelocity, int groundedRecoveryFrames)
+        {
+            EndCombo();
+            CancelWeaponTransition();
+            CurrentState = State.Launched;
+            _stateFrame = 0;
+            _launchVelocity = worldVelocity;
+            _launchRecoveryFrames = Mathf.Max(0, groundedRecoveryFrames);
+            _launchGroundedFrames = 0;
+            _landedFromLaunch = false;
+        }
+
+        void TickLaunched()
+        {
+            float delta = Time.fixedDeltaTime;
+            CollisionFlags collisions = _cc.Move(_launchVelocity * delta);
+            _stateFrame++;
+
+            bool grounded = _cc.isGrounded || (collisions & CollisionFlags.Below) != 0;
+            if (grounded && _launchVelocity.y <= 0f)
+            {
+                _landedFromLaunch = true;
+                _launchVelocity = Vector3.zero;
+                _launchGroundedFrames++;
+                if (_launchRecoveryFrames == 0 ||
+                    _launchGroundedFrames >= _launchRecoveryFrames)
+                    EndCombo();
+                return;
+            }
+
+            _launchVelocity.y += launchGravity * delta;
         }
 
         void StartFreshCombo()
