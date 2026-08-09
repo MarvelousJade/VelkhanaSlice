@@ -401,6 +401,97 @@ namespace VelkhanaSlice.Tests
                 VelkhanaSlice.Hunter.HunterController.ShouldEnterNeutralPrimary(true));
         }
 
+        [Test]
+        public void HunterPoseClassificationPreservesDecodedDrawAndTrueChargeIdentities()
+        {
+            Assert.AreEqual(
+                VelkhanaSlice.Hunter.HunterPresentation.CombatPoseFamily.MovingDraw,
+                VelkhanaSlice.Hunter.HunterPresentation.ClassifyPose(
+                    VelkhanaSlice.Hunter.HunterController.Wp00Node.MovingDrawToVerticalSlash));
+            Assert.AreEqual(
+                VelkhanaSlice.Hunter.HunterPresentation.CombatPoseFamily.StationaryDraw,
+                VelkhanaSlice.Hunter.HunterPresentation.ClassifyPose(
+                    VelkhanaSlice.Hunter.HunterController.Wp00Node.DrawStationary));
+            Assert.AreEqual(
+                VelkhanaSlice.Hunter.HunterPresentation.CombatPoseFamily.TrueChargeOpening,
+                VelkhanaSlice.Hunter.HunterPresentation.ClassifyPose(
+                    VelkhanaSlice.Hunter.HunterController.Wp00Node.TrueChargeFirstHit));
+            Assert.AreEqual(
+                VelkhanaSlice.Hunter.HunterPresentation.CombatPoseFamily.TrueChargeFinisher,
+                VelkhanaSlice.Hunter.HunterPresentation.ClassifyPose(
+                    VelkhanaSlice.Hunter.HunterController.Wp00Node.TrueChargeFinishLevel3));
+        }
+
+        [Test]
+        public void HunterPresentationPhaseWeightsCarryAcrossActiveAndRecoveryBoundaries()
+        {
+            var lastStartup = VelkhanaSlice.Hunter.HunterPresentation.EvaluateAttackPhase(
+                10, 4, 8, 9);
+            var firstActive = VelkhanaSlice.Hunter.HunterPresentation.EvaluateAttackPhase(
+                10, 4, 8, 10);
+            var lastActive = VelkhanaSlice.Hunter.HunterPresentation.EvaluateAttackPhase(
+                10, 4, 8, 13);
+            var firstRecovery = VelkhanaSlice.Hunter.HunterPresentation.EvaluateAttackPhase(
+                10, 4, 8, 14);
+            var lastRecovery = VelkhanaSlice.Hunter.HunterPresentation.EvaluateAttackPhase(
+                10, 4, 8, 21);
+
+            Assert.Greater(lastStartup.Anticipation, 0.95f);
+            Assert.Greater(
+                firstActive.Anticipation,
+                0.6f,
+                "startup should still read into the first active frame");
+            Assert.Greater(firstActive.Impact, 0.5f);
+            Assert.Greater(lastActive.FollowThrough, 0.95f);
+            Assert.Greater(
+                firstRecovery.FollowThrough,
+                0.8f,
+                "follow-through should not snap off on recovery start");
+            Assert.Greater(firstRecovery.RecoveryEase, 0f);
+            Assert.AreEqual(0f, lastRecovery.Anticipation, 0.0001f);
+            Assert.AreEqual(0f, lastRecovery.Impact, 0.0001f);
+            Assert.AreEqual(0f, lastRecovery.FollowThrough, 0.0001f);
+            Assert.AreEqual(1f, lastRecovery.RecoveryEase, 0.0001f);
+        }
+
+        [Test]
+        public void HunterPresentationPhaseHandlesZeroAndSingleActiveFrameAttacks()
+        {
+            var lastDrawStartup = VelkhanaSlice.Hunter.HunterPresentation.EvaluateAttackPhase(
+                18, 0, 4, 17);
+            var firstDrawRecovery = VelkhanaSlice.Hunter.HunterPresentation.EvaluateAttackPhase(
+                18, 0, 4, 18);
+            var lastDrawRecovery = VelkhanaSlice.Hunter.HunterPresentation.EvaluateAttackPhase(
+                18, 0, 4, 21);
+            var singleActive = VelkhanaSlice.Hunter.HunterPresentation.EvaluateAttackPhase(
+                3, 1, 2, 3);
+
+            Assert.AreEqual(0f, lastDrawStartup.ActiveProgress, 0.0001f);
+            Assert.Greater(firstDrawRecovery.Anticipation, 0.8f);
+            Assert.Less(firstDrawRecovery.Anticipation, lastDrawStartup.Anticipation);
+            Assert.AreEqual(0f, lastDrawRecovery.Anticipation, 0.0001f);
+            Assert.AreEqual(0f, lastDrawRecovery.FollowThrough, 0.0001f);
+            Assert.AreEqual(1f, singleActive.Impact, 0.0001f,
+                "a one-frame hit still needs an impact pose");
+        }
+
+        [Test]
+        public void PresentationsUseTheLastSimulatedAttackFrame()
+        {
+            Assert.AreEqual(
+                10,
+                VelkhanaSlice.Hunter.HunterPresentation.SelectPresentationFrame(11, 10));
+            Assert.AreEqual(
+                10,
+                VelkhanaSlice.Monster.VelkhanaPresentation.SelectPresentationFrame(11, 10));
+            Assert.AreEqual(
+                0,
+                VelkhanaSlice.Hunter.HunterPresentation.SelectPresentationFrame(0, -1));
+            Assert.AreEqual(
+                0,
+                VelkhanaSlice.Monster.VelkhanaPresentation.SelectPresentationFrame(0, -1));
+        }
+
         static void AssertRoute(
             VelkhanaSlice.Hunter.HunterController.Wp00Node from,
             VelkhanaSlice.Hunter.HunterController.CoreInput input,

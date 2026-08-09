@@ -337,5 +337,32 @@ namespace VelkhanaSlice.Tests
                 VelkhanaBrain.ProjectGroundResetPacingFrames(
                     60, false, false, false, 0.65f, 0.72f, 0.78f));
         }
+
+        [Test]
+        public void VelkhanaPresentationPhaseWeightsCarryAndReturnToRest()
+        {
+            var firstActive = VelkhanaPresentation.EvaluateAttackPhase(12, 6, 18, 12);
+            var midActive = VelkhanaPresentation.EvaluateAttackPhase(12, 6, 18, 14);
+            var firstRecovery = VelkhanaPresentation.EvaluateAttackPhase(12, 6, 18, 18);
+            var lastRecovery = VelkhanaPresentation.EvaluateAttackPhase(12, 6, 18, 35);
+            var singleActive = VelkhanaPresentation.EvaluateAttackPhase(4, 1, 3, 4);
+
+            Assert.Greater(firstActive.Anticipation, 0.55f);
+            Assert.Greater(firstActive.Impact, 0.45f);
+            Assert.Greater(
+                midActive.Impact,
+                firstActive.Impact,
+                "impact should peak inside the active window");
+            Assert.Greater(
+                firstRecovery.FollowThrough,
+                0.85f,
+                "recovery should begin with lingering follow-through");
+            Assert.Greater(firstRecovery.RecoveryEase, 0f);
+            Assert.AreEqual(0f, lastRecovery.Anticipation, 0.0001f);
+            Assert.AreEqual(0f, lastRecovery.Impact, 0.0001f);
+            Assert.AreEqual(0f, lastRecovery.FollowThrough, 0.0001f);
+            Assert.AreEqual(1f, lastRecovery.RecoveryEase, 0.0001f);
+            Assert.AreEqual(1f, singleActive.Impact, 0.0001f);
+        }
     }
 }

@@ -14,6 +14,38 @@ namespace VelkhanaSlice.Monster
     [RequireComponent(typeof(VelkhanaBrain))]
     public sealed class VelkhanaPresentation : MonoBehaviour
     {
+        public readonly struct AttackPosePhase
+        {
+            public readonly float OverallProgress;
+            public readonly float StartupProgress;
+            public readonly float ActiveProgress;
+            public readonly float RecoveryProgress;
+            public readonly float Anticipation;
+            public readonly float Impact;
+            public readonly float FollowThrough;
+            public readonly float RecoveryEase;
+
+            public AttackPosePhase(
+                float overallProgress,
+                float startupProgress,
+                float activeProgress,
+                float recoveryProgress,
+                float anticipation,
+                float impact,
+                float followThrough,
+                float recoveryEase)
+            {
+                OverallProgress = overallProgress;
+                StartupProgress = startupProgress;
+                ActiveProgress = activeProgress;
+                RecoveryProgress = recoveryProgress;
+                Anticipation = anticipation;
+                Impact = impact;
+                FollowThrough = followThrough;
+                RecoveryEase = recoveryEase;
+            }
+        }
+
         [Header("Presentation-only hierarchy")]
         public Transform visualRoot;
         public Transform torsoPivot;
@@ -64,6 +96,7 @@ namespace VelkhanaSlice.Monster
         Quaternion[] _restRotations;
         Vector3[] _restScales;
         Renderer _beamRenderer;
+        Vector3 _breathBeamRestScale;
         readonly List<MaterialState> _materials = new List<MaterialState>();
 
         sealed class MaterialState
@@ -128,6 +161,8 @@ namespace VelkhanaSlice.Monster
                 _restRotations[i] = node.localRotation;
                 _restScales[i] = node.localScale;
             }
+
+            if (breathBeam != null) _breathBeamRestScale = breathBeam.localScale;
         }
 
         void SetupEffects()
@@ -171,12 +206,16 @@ namespace VelkhanaSlice.Monster
             if (_brain == null || visualRoot == null) return;
 
             ResetPose();
-            SetBreathEffect(false, 0f);
+            SetBreathEffect(false, 1f, 1f, 0f);
             ApplyAmbientPose();
             ApplyContextPose();
 
             if (_brain.CurrentAttack != null)
-                ApplyAttackPose(_brain.CurrentAttack, _brain.AttackFrame);
+                ApplyAttackPose(
+                    _brain.CurrentAttack,
+                    SelectPresentationFrame(
+                        _brain.AttackFrame,
+                        _brain.LastSimulatedAttackFrame));
             else if (_brain.CurrentState == VelkhanaState.Reposition)
                 ApplyRepositionPose();
             else if (_brain.CurrentState == VelkhanaState.RageTransition)
@@ -184,6 +223,10 @@ namespace VelkhanaSlice.Monster
             else if (_brain.CurrentState == VelkhanaState.Toppled)
                 ApplyTopplePose();
 
+            float attentionWeight = _brain.CurrentAttack != null
+                ? 0.18f
+                : _brain.IsAirborne ? 0.35f : 0.85f;
+            ApplyAttentionPose(attentionWeight);
             ApplyPhaseGlow();
         }
 
@@ -205,6 +248,9 @@ namespace VelkhanaSlice.Monster
             float breath = Mathf.Sin(time * 1.8f);
             float wing = Mathf.Sin(time * 1.15f) * wingIdleDegrees;
             float tail = Mathf.Sin(time * 0.9f) * tailIdleDegrees;
+            float neck = Mathf.Sin(time * 1.05f + 0.6f);
+
+            Move(visualRoot, new Vector3(0f, Mathf.Abs(breath) * 0.035f, 0f));
 
             if (torsoPivot != null)
                 torsoPivot.localScale = Vector3.Scale(
@@ -213,58 +259,101 @@ namespace VelkhanaSlice.Monster
                         1f + breath * breathingAmount,
                         1f + breath * breathingAmount * 0.2f));
 
+            Rotate(torsoPivot, new Vector3(breath * 1.5f, neck * 1.5f, 0f));
+            Rotate(neckPivot, new Vector3(-breath * 3.5f, neck * 2.5f, 0f));
+            Rotate(headPivot, new Vector3(breath * 4f, -neck * 2f, 0f));
             Rotate(wingLPivot, new Vector3(0f, 0f, wing));
             Rotate(wingRPivot, new Vector3(0f, 0f, -wing));
+            Rotate(frontLegLPivot, new Vector3(-breath * 2f, 0f, 0f));
+            Rotate(frontLegRPivot, new Vector3(-breath * 2f, 0f, 0f));
+            Rotate(rearLegLPivot, new Vector3(breath * 1.5f, 0f, 0f));
+            Rotate(rearLegRPivot, new Vector3(breath * 1.5f, 0f, 0f));
             Rotate(tailRoot, new Vector3(0f, tail, 0f));
-            Rotate(tailMiddle, new Vector3(0f, -tail * 0.65f, 0f));
-            Rotate(tailTip, new Vector3(0f, tail * 0.45f, 0f));
+            Rotate(tailMiddle, new Vector3(0f, -tail * 0.7f, 0f));
+            Rotate(tailTip, new Vector3(0f, tail * 0.5f, 0f));
         }
 
         void ApplyRepositionPose()
         {
-            float stride = Mathf.Sin(_brain.StateFrame * Time.fixedDeltaTime * 9f);
-            float bob = Mathf.Abs(stride) * 0.09f;
+            float phase = _brain.StateFrame * Time.fixedDeltaTime * 8.5f;
+            float stride = Mathf.Sin(phase);
+            float counter = Mathf.Sin(phase + Mathf.PI);
+            float bob = Mathf.Abs(stride) * 0.11f;
 
             Move(visualRoot, new Vector3(0f, bob, 0f));
-            Rotate(torsoPivot, new Vector3(4f, 0f, stride * 3f));
+            Rotate(torsoPivot, new Vector3(5f, 0f, stride * 4f));
+            Rotate(neckPivot, new Vector3(-4f, -stride * 4f, 0f));
+            Rotate(headPivot, new Vector3(3f, stride * 2f, 0f));
             Rotate(frontLegLPivot, new Vector3(stride * repositionStrideDegrees, 0f, 0f));
-            Rotate(frontLegRPivot, new Vector3(-stride * repositionStrideDegrees, 0f, 0f));
-            Rotate(rearLegLPivot, new Vector3(-stride * repositionStrideDegrees, 0f, 0f));
-            Rotate(rearLegRPivot, new Vector3(stride * repositionStrideDegrees, 0f, 0f));
-            Rotate(wingLPivot, new Vector3(0f, 18f, -12f));
-            Rotate(wingRPivot, new Vector3(0f, -18f, 12f));
+            Rotate(frontLegRPivot, new Vector3(counter * repositionStrideDegrees, 0f, 0f));
+            Rotate(rearLegLPivot, new Vector3(counter * repositionStrideDegrees * 0.85f, 0f, 0f));
+            Rotate(rearLegRPivot, new Vector3(stride * repositionStrideDegrees * 0.85f, 0f, 0f));
+            Rotate(wingLPivot, new Vector3(-6f, 14f, -14f - stride * 4f));
+            Rotate(wingRPivot, new Vector3(-6f, -14f, 14f + stride * 4f));
+            Rotate(tailRoot, new Vector3(-4f, -stride * 16f, 0f));
+            Rotate(tailMiddle, new Vector3(0f, stride * 12f, 0f));
+            Rotate(tailTip, new Vector3(0f, -stride * 8f, 0f));
         }
 
         void ApplyContextPose()
         {
-            float lift = 0f;
             if (_brain.CurrentState == VelkhanaState.Takeoff)
             {
-                float t = Smooth(Mathf.Clamp01(
-                    (float)_brain.StateFrame / Mathf.Max(1, _brain.takeoffFrames)));
-                lift = airborneHeight * t;
-            }
-            else if (_brain.CurrentState == VelkhanaState.Landing)
-            {
-                float t = Smooth(Mathf.Clamp01(
-                    (float)_brain.StateFrame / Mathf.Max(1, _brain.landingFrames)));
-                lift = airborneHeight * (1f - t);
-            }
-            else if (_brain.IsAirborne)
-            {
-                lift = airborneHeight + Mathf.Sin(Time.time * 3.2f) * 0.18f;
+                float t = Smooth(Mathf.Clamp01((float)_brain.StateFrame / Mathf.Max(1, _brain.takeoffFrames)));
+                float crouch = Mathf.Sin(Mathf.Clamp01(t * 1.65f) * Mathf.PI);
+                float lift = airborneHeight * t;
+
+                Move(visualRoot, new Vector3(0f, lift - crouch * 0.24f, 0f));
+                Rotate(torsoPivot, new Vector3(12f * crouch - 10f * t, 0f, 0f));
+                Rotate(neckPivot, new Vector3(-8f * crouch, 0f, 0f));
+                Rotate(headPivot, new Vector3(10f * crouch, 0f, 0f));
+                Rotate(wingLPivot, new Vector3(-18f * crouch - 12f * t, 8f * crouch, Mathf.Lerp(22f, 76f, t)));
+                Rotate(wingRPivot, new Vector3(-18f * crouch - 12f * t, -8f * crouch, -Mathf.Lerp(22f, 76f, t)));
+                Rotate(frontLegLPivot, new Vector3(-18f * crouch - 18f * t, 0f, 0f));
+                Rotate(frontLegRPivot, new Vector3(-18f * crouch - 18f * t, 0f, 0f));
+                Rotate(rearLegLPivot, new Vector3(18f * crouch + 22f * t, 0f, 0f));
+                Rotate(rearLegRPivot, new Vector3(18f * crouch + 22f * t, 0f, 0f));
+                Rotate(tailRoot, new Vector3(-14f * crouch, 0f, 0f));
+                return;
             }
 
-            if (lift <= 0f && _brain.CurrentState != VelkhanaState.Takeoff) return;
+            if (_brain.CurrentState == VelkhanaState.Landing)
+            {
+                float t = Smooth(Mathf.Clamp01((float)_brain.StateFrame / Mathf.Max(1, _brain.landingFrames)));
+                float flare = 1f - t;
+                float impact = Mathf.Sin(Mathf.Clamp01(t * 1.5f) * Mathf.PI);
+                float lift = airborneHeight * flare;
 
-            Move(visualRoot, new Vector3(0f, lift, 0f));
-            float flap = Mathf.Sin(Time.time * 8.5f) * 20f;
-            Rotate(wingLPivot, new Vector3(-12f, 0f, 62f + flap));
-            Rotate(wingRPivot, new Vector3(-12f, 0f, -62f - flap));
-            Rotate(frontLegLPivot, new Vector3(-34f, 0f, 0f));
-            Rotate(frontLegRPivot, new Vector3(-34f, 0f, 0f));
-            Rotate(rearLegLPivot, new Vector3(26f, 0f, 0f));
-            Rotate(rearLegRPivot, new Vector3(26f, 0f, 0f));
+                Move(visualRoot, new Vector3(0f, lift - impact * 0.28f, 0f));
+                Rotate(torsoPivot, new Vector3(-10f * flare + 16f * impact, 0f, 0f));
+                Rotate(neckPivot, new Vector3(8f * flare - 10f * impact, 0f, 0f));
+                Rotate(headPivot, new Vector3(-8f * flare + 10f * impact, 0f, 0f));
+                Rotate(wingLPivot, new Vector3(-12f + 10f * impact, 0f, 74f * flare + 18f * impact));
+                Rotate(wingRPivot, new Vector3(-12f + 10f * impact, 0f, -74f * flare - 18f * impact));
+                Rotate(frontLegLPivot, new Vector3(-30f * flare + 34f * impact, 0f, 0f));
+                Rotate(frontLegRPivot, new Vector3(-30f * flare + 34f * impact, 0f, 0f));
+                Rotate(rearLegLPivot, new Vector3(22f * flare - 26f * impact, 0f, 0f));
+                Rotate(rearLegRPivot, new Vector3(22f * flare - 26f * impact, 0f, 0f));
+                Rotate(tailRoot, new Vector3(-12f * flare + 16f * impact, 0f, 0f));
+                return;
+            }
+
+            if (!_brain.IsAirborne) return;
+
+            float glide = Mathf.Sin(Time.time * 2.2f);
+            float flap = Mathf.Sin(Time.time * 8.5f);
+            Move(visualRoot, new Vector3(0f, airborneHeight + glide * 0.14f, 0f));
+            Rotate(torsoPivot, new Vector3(-10f + flap * 2f, glide * 3f, 0f));
+            Rotate(neckPivot, new Vector3(6f, -glide * 4f, 0f));
+            Rotate(headPivot, new Vector3(-4f, glide * 2f, 0f));
+            Rotate(wingLPivot, new Vector3(-16f - flap * 10f, 0f, 70f + flap * 24f));
+            Rotate(wingRPivot, new Vector3(-16f - flap * 10f, 0f, -70f - flap * 24f));
+            Rotate(frontLegLPivot, new Vector3(-32f, 0f, 0f));
+            Rotate(frontLegRPivot, new Vector3(-32f, 0f, 0f));
+            Rotate(rearLegLPivot, new Vector3(24f, 0f, 0f));
+            Rotate(rearLegRPivot, new Vector3(24f, 0f, 0f));
+            Rotate(tailRoot, new Vector3(-10f, glide * 18f, 0f));
+            Rotate(tailMiddle, new Vector3(0f, -glide * 12f, 0f));
         }
 
         void ApplyRagePose()
@@ -280,7 +369,10 @@ namespace VelkhanaSlice.Monster
             Rotate(headPivot, new Vector3(22f * roar, 0f, 0f));
             Rotate(wingLPivot, new Vector3(-16f * roar, 0f, 82f * roar));
             Rotate(wingRPivot, new Vector3(-16f * roar, 0f, -82f * roar));
+            Rotate(frontLegLPivot, new Vector3(-18f * roar, 0f, 0f));
+            Rotate(frontLegRPivot, new Vector3(-18f * roar, 0f, 0f));
             Rotate(tailRoot, new Vector3(18f * roar, shake * 8f, 0f));
+            Rotate(tailMiddle, new Vector3(0f, -24f * roar, 0f));
         }
 
         void ApplyTopplePose()
@@ -303,133 +395,211 @@ namespace VelkhanaSlice.Monster
             Rotate(rearLegRPivot, new Vector3(36f * fall, 0f, 0f));
             Rotate(tailRoot, new Vector3(-18f * fall, 24f * fall, 0f));
             Rotate(tailMiddle, new Vector3(0f, -34f * fall, 0f));
+            Rotate(tailTip, new Vector3(0f, 22f * fall, 0f));
+        }
+
+        void ApplyAttentionPose(float weight)
+        {
+            if (weight <= 0f || _brain.hunter == null || neckPivot == null) return;
+
+            Transform lookRoot = headPivot != null ? headPivot : neckPivot;
+            Vector3 toHunter = _brain.hunter.position - lookRoot.position;
+            Vector3 flat = new Vector3(toHunter.x, 0f, toHunter.z);
+            float yaw = 0f;
+            if (flat.sqrMagnitude > 0.001f)
+                yaw = Mathf.Clamp(Vector3.SignedAngle(transform.forward, flat.normalized, Vector3.up), -32f, 32f);
+
+            float pitch = 0f;
+            float flatLength = flat.magnitude;
+            if (toHunter.sqrMagnitude > 0.001f)
+                pitch = Mathf.Clamp(Mathf.Atan2(toHunter.y, Mathf.Max(0.001f, flatLength)) * Mathf.Rad2Deg, -18f, 18f);
+
+            Rotate(neckPivot, new Vector3(-pitch * 0.35f * weight, yaw * 0.65f * weight, 0f));
+            Rotate(headPivot, new Vector3(-pitch * 0.55f * weight, yaw * 0.45f * weight, 0f));
         }
 
         void ApplyAttackPose(AttackDefinition attack, int frame)
         {
-            float startup = StartupProgress(attack, frame);
-            float active = ActiveProgress(attack, frame);
-            float recovery = RecoveryProgress(attack, frame);
+            AttackPosePhase phase = EvaluateAttackPhase(attack, frame);
 
             if (attack == adjustBite)
-                PoseBite(startup, active, recovery);
+                PoseBite(phase);
             else if (attack == rush || attack == rush2)
-                PoseRush(startup, active, recovery, false);
+                PoseRush(phase, false);
             else if (attack == backStepPierce)
-                PoseRush(startup, active, recovery, true);
+                PoseRush(phase, true);
             else if (attack == tailThrust || attack == flyTailStingToGround)
-                PoseTailThrust(startup, active, recovery);
+                PoseTailThrust(phase, attack == flyTailStingToGround);
             else if (attack == tailSwing)
-                PoseTailSwing(startup, active, recovery);
+                PoseTailSwing(phase);
             else if (attack == straightBreath || attack == freezeBreath)
-                PoseIceBeam(startup, active, recovery, false);
+                PoseIceBeam(phase, false);
             else if (attack == sweep90Breath || attack == sweep180Breath)
-                PoseIceBeam(startup, active, recovery, true);
+                PoseIceBeam(phase, true);
             else if (attack == iceWave || attack == areaBreath || attack == iceSpires ||
                      attack == iceWaveStartFly)
-                PoseIceSpires(startup, active, recovery);
+                PoseIceSpires(phase);
             else if (attack == verticalBreathFly || attack == verticalBreathFlyToGround)
-                PoseVerticalBreath(startup, active, recovery);
+                PoseVerticalBreath(phase, attack == verticalBreathFlyToGround);
         }
 
-        void PoseBite(float startup, float active, float recovery)
+        void PoseBite(AttackPosePhase phase)
         {
-            float windup = Smooth(startup) * (1f - Smooth(recovery));
-            float snap = Mathf.Sin(Mathf.Clamp01(active) * Mathf.PI);
-
-            Rotate(torsoPivot, new Vector3(8f * windup, 0f, 0f));
-            Rotate(neckPivot, new Vector3(-34f * windup + 55f * snap, 0f, 0f));
-            Rotate(headPivot, new Vector3(24f * windup - 42f * snap, 0f, 0f));
-            Move(headPivot, new Vector3(0f, -0.15f * windup, 0.7f * snap));
+            Move(visualRoot, new Vector3(0f, -0.08f * phase.Anticipation, 0.12f * phase.Impact));
+            Rotate(torsoPivot, new Vector3(8f * phase.Anticipation - 6f * phase.FollowThrough, 0f, 0f));
+            Rotate(neckPivot, new Vector3(-36f * phase.Anticipation + 60f * phase.Impact - 18f * phase.FollowThrough, 10f * phase.Anticipation, 0f));
+            Rotate(headPivot, new Vector3(22f * phase.Anticipation - 46f * phase.Impact + 20f * phase.FollowThrough, 0f, 0f));
+            Move(headPivot, new Vector3(0f, -0.12f * phase.Anticipation, 0.62f * phase.Impact - 0.14f * phase.FollowThrough));
+            Rotate(wingLPivot, new Vector3(2f * phase.Anticipation, 12f * phase.Anticipation, -18f * phase.Anticipation));
+            Rotate(wingRPivot, new Vector3(2f * phase.Anticipation, -12f * phase.Anticipation, 18f * phase.Anticipation));
+            Rotate(frontLegLPivot, new Vector3(-18f * phase.Anticipation + 14f * phase.Impact, 0f, 0f));
+            Rotate(frontLegRPivot, new Vector3(-18f * phase.Anticipation + 14f * phase.Impact, 0f, 0f));
+            Rotate(tailRoot, new Vector3(-6f * phase.Impact, -18f * phase.Impact, 0f));
+            Rotate(tailMiddle, new Vector3(0f, 12f * phase.Impact, 0f));
         }
 
-        void PoseRush(float startup, float active, float recovery, bool backwards)
+        void PoseRush(AttackPosePhase phase, bool backwards)
         {
-            float brace = Smooth(startup) * (1f - Smooth(recovery));
-            float drive = active > 0f ? Mathf.Sin(Mathf.Clamp01(active) * Mathf.PI) : 0f;
             float direction = backwards ? -1f : 1f;
+            float stride = Mathf.Sin(phase.OverallProgress * Mathf.PI * 4f);
+            float drive = phase.Impact + phase.FollowThrough * 0.65f;
 
-            Rotate(torsoPivot, new Vector3(18f * brace * direction, 0f, 0f));
-            Rotate(neckPivot, new Vector3(-24f * brace * direction, 0f, 0f));
-            Rotate(wingLPivot, new Vector3(0f, 48f * brace, -22f * brace));
-            Rotate(wingRPivot, new Vector3(0f, -48f * brace, 22f * brace));
-            Move(visualRoot, new Vector3(0f, -0.16f * brace, drive * 0.45f * direction));
-            Rotate(frontLegLPivot, new Vector3(-28f * brace + drive * 42f, 0f, 0f));
-            Rotate(frontLegRPivot, new Vector3(20f * brace - drive * 42f, 0f, 0f));
+            Move(visualRoot, new Vector3(0f, -0.14f * phase.Anticipation + 0.05f * drive, 0.3f * drive * direction));
+            Rotate(torsoPivot, new Vector3(
+                16f * phase.Anticipation * direction -
+                10f * RecoverySettle(phase.RecoveryEase) * direction,
+                0f,
+                stride * 2.5f));
+            Rotate(neckPivot, new Vector3(-22f * phase.Anticipation * direction + 8f * drive, 0f, 0f));
+            Rotate(headPivot, new Vector3(10f * drive, 0f, 0f));
+            Rotate(wingLPivot, new Vector3(-4f * phase.Anticipation, 38f * phase.Anticipation, -20f * phase.Anticipation - stride * 5f));
+            Rotate(wingRPivot, new Vector3(-4f * phase.Anticipation, -38f * phase.Anticipation, 20f * phase.Anticipation + stride * 5f));
+            Rotate(frontLegLPivot, new Vector3(-18f * phase.Anticipation + stride * 38f, 0f, 0f));
+            Rotate(frontLegRPivot, new Vector3(-18f * phase.Anticipation - stride * 38f, 0f, 0f));
+            Rotate(rearLegLPivot, new Vector3(14f * phase.Anticipation - stride * 28f, 0f, 0f));
+            Rotate(rearLegRPivot, new Vector3(14f * phase.Anticipation + stride * 28f, 0f, 0f));
+            Rotate(tailRoot, new Vector3(-4f * drive, -stride * 10f, 0f));
+            Rotate(tailMiddle, new Vector3(0f, stride * 8f, 0f));
         }
 
-        void PoseTailThrust(float startup, float active, float recovery)
+        void PoseTailThrust(AttackPosePhase phase, bool descending)
         {
-            float windup = Smooth(startup) * (1f - active) * (1f - recovery);
-            float strike = active > 0f ? 1f : 0f;
-            float extension = Mathf.Clamp01(strike * (1f - Smooth(recovery)));
+            float strike = phase.Impact + 0.35f * phase.FollowThrough;
+            float descent = descending ? RecoverySettle(phase.RecoveryEase) : 0f;
 
-            Rotate(torsoPivot, new Vector3(-7f * windup, 0f, 10f * windup));
-            Rotate(neckPivot, new Vector3(8f * windup, -12f * windup, 0f));
-            Rotate(tailRoot, new Vector3(-28f * windup, 178f * extension, 62f * windup));
-            Rotate(tailMiddle, new Vector3(16f * windup, -112f * windup, -30f * windup));
-            Rotate(tailTip, new Vector3(-12f * windup, 82f * windup, 20f * windup));
+            Move(visualRoot, new Vector3(0f, 0.04f * phase.Anticipation - 0.08f * strike, 0f));
+            Rotate(torsoPivot, new Vector3(-8f * phase.Anticipation + 10f * strike, 0f, 12f * phase.Anticipation));
+            Rotate(neckPivot, new Vector3(8f * phase.Anticipation, -14f * phase.Anticipation, 0f));
+            Rotate(wingLPivot, new Vector3(-4f * descent, 18f * phase.Anticipation, -12f * phase.Anticipation));
+            Rotate(wingRPivot, new Vector3(-4f * descent, -18f * phase.Anticipation, 12f * phase.Anticipation));
+            Rotate(tailRoot, new Vector3(-30f * phase.Anticipation - 16f * descent, 138f * strike, 62f * phase.Anticipation));
+            Rotate(tailMiddle, new Vector3(18f * phase.Anticipation + 20f * descent, -122f * phase.Anticipation + 18f * strike, -32f * phase.Anticipation));
+            Rotate(tailTip, new Vector3(-12f * phase.Anticipation - 16f * strike, 104f * strike, 18f * phase.Anticipation));
+            Rotate(frontLegLPivot, new Vector3(12f * phase.Anticipation, 0f, 0f));
+            Rotate(frontLegRPivot, new Vector3(12f * phase.Anticipation, 0f, 0f));
         }
 
-        void PoseTailSwing(float startup, float active, float recovery)
+        void PoseTailSwing(AttackPosePhase phase)
         {
-            float coil = Smooth(startup) * (1f - Smooth(recovery));
-            float sweep = active > 0f ? Mathf.Lerp(-1f, 1f, Smooth(active)) : -1f;
+            float sweep = phase.ActiveProgress > 0f
+                ? Mathf.Lerp(-1f, 1f, Smooth(phase.ActiveProgress))
+                : -1f;
+            float whip = Mathf.Max(phase.Impact, phase.FollowThrough);
 
-            Rotate(torsoPivot, new Vector3(0f, -24f * coil + 45f * sweep, 8f * coil));
-            Rotate(neckPivot, new Vector3(0f, 20f * coil - 30f * sweep, 0f));
-            Rotate(tailRoot, new Vector3(0f, 85f * coil + 160f * sweep, 35f * coil));
-            Rotate(tailMiddle, new Vector3(0f, -115f * coil + 105f * sweep, -18f * coil));
-            Rotate(tailTip, new Vector3(0f, 74f * coil + 75f * sweep, 0f));
+            Rotate(torsoPivot, new Vector3(0f, -26f * phase.Anticipation + 42f * sweep * whip, 10f * phase.Anticipation));
+            Rotate(neckPivot, new Vector3(0f, 20f * phase.Anticipation - 30f * sweep * whip, 0f));
+            Rotate(wingLPivot, new Vector3(-4f * phase.Anticipation, 10f * phase.Anticipation, -18f * phase.Anticipation));
+            Rotate(wingRPivot, new Vector3(-4f * phase.Anticipation, -10f * phase.Anticipation, 18f * phase.Anticipation));
+            Rotate(frontLegLPivot, new Vector3(-18f * phase.Anticipation, 0f, -12f * sweep * whip));
+            Rotate(frontLegRPivot, new Vector3(-18f * phase.Anticipation, 0f, 12f * sweep * whip));
+            Rotate(rearLegLPivot, new Vector3(12f * phase.Anticipation, 0f, 10f * sweep * whip));
+            Rotate(rearLegRPivot, new Vector3(12f * phase.Anticipation, 0f, -10f * sweep * whip));
+            Rotate(tailRoot, new Vector3(0f, 92f * phase.Anticipation + 148f * sweep * whip, 34f * phase.Anticipation));
+            Rotate(tailMiddle, new Vector3(0f, -118f * phase.Anticipation + 116f * sweep * whip, -18f * phase.Anticipation));
+            Rotate(tailTip, new Vector3(0f, 82f * phase.Anticipation + 88f * sweep * whip, 0f));
         }
 
-        void PoseIceBeam(float startup, float active, float recovery, bool sweeping)
+        void PoseIceBeam(AttackPosePhase phase, bool sweeping)
         {
-            float charge = Smooth(startup) * (1f - Smooth(recovery));
-            float fire = active > 0f && recovery <= 0f ? 1f : 0f;
+            float beam = Mathf.Max(phase.Impact, phase.FollowThrough * (1f - phase.RecoveryEase * 0.7f));
+            float sweepAngle = sweeping ? Mathf.Lerp(-60f, 60f, Smooth(phase.ActiveProgress)) * beam : 0f;
+            float headRecoil = beam * Mathf.Sin(phase.ActiveProgress * Mathf.PI * (sweeping ? 1f : 2f));
 
-            Rotate(wingLPivot, new Vector3(-8f * charge, 0f, 38f * charge));
-            Rotate(wingRPivot, new Vector3(-8f * charge, 0f, -38f * charge));
-            Rotate(neckPivot, new Vector3(-26f * charge + 30f * fire, 0f, 0f));
-            Move(headPivot, new Vector3(0f, 0f, -0.45f * charge + 0.7f * fire));
-
-            if (sweeping)
-            {
-                float sweepAngle = Mathf.Lerp(-62f, 62f, Smooth(active));
-                Rotate(neckPivot, new Vector3(0f, sweepAngle * fire, 0f));
-            }
-
-            SetBreathEffect(fire > 0f, sweeping ? 0.8f : 1f);
+            Move(visualRoot, new Vector3(0f, 0.08f * phase.Anticipation, 0f));
+            Rotate(torsoPivot, new Vector3(-10f * phase.Anticipation + 6f * beam, sweeping ? sweepAngle * 0.08f : 0f, 0f));
+            Rotate(neckPivot, new Vector3(-26f * phase.Anticipation + 18f * beam, sweepAngle, 0f));
+            Rotate(headPivot, new Vector3(12f * phase.Anticipation - 14f * beam + 8f * headRecoil, sweepAngle * 0.45f, 0f));
+            Move(headPivot, new Vector3(0f, -0.06f * phase.Anticipation, -0.3f * phase.Anticipation + 0.74f * beam));
+            Rotate(wingLPivot, new Vector3(
+                -10f * phase.Anticipation,
+                0f,
+                30f * beam + 18f * phase.Anticipation));
+            Rotate(wingRPivot, new Vector3(
+                -10f * phase.Anticipation,
+                0f,
+                -30f * beam - 18f * phase.Anticipation));
+            Rotate(frontLegLPivot, new Vector3(-18f * phase.Anticipation + 18f * beam, 0f, 0f));
+            Rotate(frontLegRPivot, new Vector3(-18f * phase.Anticipation + 18f * beam, 0f, 0f));
+            Rotate(rearLegLPivot, new Vector3(8f * phase.Anticipation, 0f, 0f));
+            Rotate(rearLegRPivot, new Vector3(8f * phase.Anticipation, 0f, 0f));
+            Rotate(tailRoot, new Vector3(-8f * phase.Anticipation, -sweepAngle * 0.4f, 0f));
+            Rotate(tailMiddle, new Vector3(0f, sweepAngle * 0.3f, 0f));
+            Rotate(tailTip, new Vector3(0f, -sweepAngle * 0.2f, 0f));
+            SetBreathEffect(beam > 0.01f, sweeping ? 0.95f : 1.05f, sweeping ? 1.15f : 1.35f, beam);
         }
 
-        void PoseIceSpires(float startup, float active, float recovery)
+        void PoseIceSpires(AttackPosePhase phase)
         {
-            float raise = Smooth(startup) * (1f - Smooth(recovery));
-            float stomp = Mathf.Sin(Mathf.Clamp01(active) * Mathf.PI);
-
-            Move(visualRoot, new Vector3(0f, 0.42f * raise - 0.35f * stomp, 0f));
-            Rotate(torsoPivot, new Vector3(-12f * raise + 20f * stomp, 0f, 0f));
-            Rotate(wingLPivot, new Vector3(-24f * raise, 0f, 62f * raise));
-            Rotate(wingRPivot, new Vector3(-24f * raise, 0f, -62f * raise));
-            Rotate(frontLegLPivot, new Vector3(-38f * raise + 52f * stomp, 0f, 0f));
-            Rotate(frontLegRPivot, new Vector3(-38f * raise + 52f * stomp, 0f, 0f));
-            Rotate(tailRoot, new Vector3(18f * raise, 0f, 0f));
+            float wingBrace = Mathf.Max(phase.Anticipation, phase.FollowThrough);
+            Move(visualRoot, new Vector3(0f, 0.34f * phase.Anticipation - 0.28f * phase.Impact, 0f));
+            Rotate(torsoPivot, new Vector3(-14f * phase.Anticipation + 22f * phase.Impact - 8f * phase.FollowThrough, 0f, 0f));
+            Rotate(neckPivot, new Vector3(-12f * phase.Anticipation + 18f * phase.Impact, 0f, 0f));
+            Rotate(headPivot, new Vector3(10f * phase.Anticipation - 12f * phase.Impact, 0f, 0f));
+            Rotate(wingLPivot, new Vector3(
+                -22f * phase.Anticipation,
+                0f,
+                34f * wingBrace + 26f * phase.Anticipation));
+            Rotate(wingRPivot, new Vector3(
+                -22f * phase.Anticipation,
+                0f,
+                -34f * wingBrace - 26f * phase.Anticipation));
+            Rotate(frontLegLPivot, new Vector3(-36f * phase.Anticipation + 54f * phase.Impact, 0f, 0f));
+            Rotate(frontLegRPivot, new Vector3(-36f * phase.Anticipation + 54f * phase.Impact, 0f, 0f));
+            Rotate(rearLegLPivot, new Vector3(18f * phase.Anticipation - 12f * phase.Impact, 0f, 0f));
+            Rotate(rearLegRPivot, new Vector3(18f * phase.Anticipation - 12f * phase.Impact, 0f, 0f));
+            Rotate(tailRoot, new Vector3(18f * phase.Anticipation - 12f * phase.Impact, 0f, 0f));
+            Rotate(tailMiddle, new Vector3(0f, -18f * phase.Anticipation, 0f));
         }
 
-        void PoseVerticalBreath(float startup, float active, float recovery)
+        void PoseVerticalBreath(AttackPosePhase phase, bool toGround)
         {
-            float charge = Smooth(startup) * (1f - Smooth(recovery));
-            float fire = active > 0f && recovery <= 0f ? 1f : 0f;
+            float beam = Mathf.Max(phase.Impact, phase.FollowThrough * (1f - phase.RecoveryEase * 0.65f));
+            float descent = toGround ? RecoverySettle(phase.RecoveryEase) : 0f;
+            float flightBrace = Mathf.Max(phase.Anticipation, beam);
 
-            Rotate(neckPivot, new Vector3(58f * charge, 0f, 0f));
-            Rotate(headPivot, new Vector3(38f * charge, 0f, 0f));
-            Rotate(wingLPivot, new Vector3(-18f, 0f, 72f * charge));
-            Rotate(wingRPivot, new Vector3(-18f, 0f, -72f * charge));
-            Move(headPivot, new Vector3(0f, -0.45f * charge, 0f));
-            SetBreathEffect(fire > 0f, 1.45f);
+            Move(visualRoot, new Vector3(0f, 0.12f * phase.Anticipation - 0.18f * descent, 0f));
+            Rotate(torsoPivot, new Vector3(-12f * phase.Anticipation + 8f * beam + 18f * descent, 0f, 0f));
+            Rotate(neckPivot, new Vector3(56f * phase.Anticipation - 16f * beam, 0f, 0f));
+            Rotate(headPivot, new Vector3(30f * phase.Anticipation - 24f * beam, 0f, 0f));
+            Rotate(wingLPivot, new Vector3(
+                -16f * flightBrace - 8f * phase.Anticipation + 10f * beam,
+                0f,
+                58f * flightBrace + 18f * phase.Anticipation - 14f * descent));
+            Rotate(wingRPivot, new Vector3(
+                -16f * flightBrace - 8f * phase.Anticipation + 10f * beam,
+                0f,
+                -58f * flightBrace - 18f * phase.Anticipation + 14f * descent));
+            Move(headPivot, new Vector3(0f, -0.38f * phase.Anticipation, 0f));
+            Rotate(frontLegLPivot, new Vector3(-26f * phase.Anticipation + 30f * descent, 0f, 0f));
+            Rotate(frontLegRPivot, new Vector3(-26f * phase.Anticipation + 30f * descent, 0f, 0f));
+            Rotate(rearLegLPivot, new Vector3(18f * phase.Anticipation - 22f * descent, 0f, 0f));
+            Rotate(rearLegRPivot, new Vector3(18f * phase.Anticipation - 22f * descent, 0f, 0f));
+            Rotate(tailRoot, new Vector3(-10f * phase.Anticipation + 16f * descent, 0f, 0f));
+            Rotate(tailMiddle, new Vector3(0f, -12f * phase.Anticipation, 0f));
+            SetBreathEffect(beam > 0.01f, 1.18f, 1.55f, beam * 1.1f);
         }
 
-        void SetBreathEffect(bool active, float width)
+        void SetBreathEffect(bool active, float width, float length, float intensity)
         {
             if (_beamRenderer != null) _beamRenderer.enabled = active;
             if (breathLight != null)
@@ -438,14 +608,16 @@ namespace VelkhanaSlice.Monster
                 if (active)
                 {
                     breathLight.color = new Color(0.36f, 0.9f, 1f);
-                    breathLight.intensity = 3.5f;
+                    breathLight.intensity = 2.2f + 2.4f * intensity;
+                    breathLight.range = 3.6f + 1.8f * width;
                 }
             }
 
             if (!active || breathBeam == null) return;
-            Vector3 scale = breathBeam.localScale;
+            Vector3 scale = _breathBeamRestScale;
             scale.x *= width;
             scale.y *= width;
+            scale.z *= length;
             breathBeam.localScale = scale;
         }
 
@@ -498,31 +670,92 @@ namespace VelkhanaSlice.Monster
             return stage == ArmorStage.Neutral ? 0f : 0.55f + (int)stage * 0.35f;
         }
 
-        static float StartupProgress(AttackDefinition attack, int frame)
+        public static AttackPosePhase EvaluateAttackPhase(AttackDefinition attack, int frame)
         {
-            if (attack.startupFrames <= 0) return 1f;
-            return Mathf.Clamp01((float)frame / attack.startupFrames);
+            if (attack == null) return default;
+            return EvaluateAttackPhase(
+                attack.startupFrames,
+                attack.activeFrames,
+                attack.recoveryFrames,
+                frame);
         }
 
-        static float ActiveProgress(AttackDefinition attack, int frame)
+        public static AttackPosePhase EvaluateAttackPhase(
+            int startupFrames,
+            int activeFrames,
+            int recoveryFrames,
+            int frame)
         {
-            if (frame < attack.startupFrames) return 0f;
-            if (attack.activeFrames <= 0) return 1f;
-            return Mathf.Clamp01((float)(frame - attack.startupFrames + 1) / attack.activeFrames);
-        }
+            startupFrames = Mathf.Max(0, startupFrames);
+            activeFrames = Mathf.Max(0, activeFrames);
+            recoveryFrames = Mathf.Max(0, recoveryFrames);
 
-        static float RecoveryProgress(AttackDefinition attack, int frame)
-        {
-            int start = attack.startupFrames + attack.activeFrames;
-            if (frame < start) return 0f;
-            if (attack.recoveryFrames <= 0) return 1f;
-            return Mathf.Clamp01((float)(frame - start + 1) / attack.recoveryFrames);
+            int totalFrames = Mathf.Max(1, startupFrames + activeFrames + recoveryFrames);
+            float overall = Mathf.Clamp01((frame + 1f) / totalFrames);
+            float startup = SegmentProgress(frame, startupFrames);
+            float active = activeFrames > 0
+                ? SegmentProgress(frame - startupFrames, activeFrames)
+                : 0f;
+            float recovery = SegmentProgress(
+                frame - startupFrames - activeFrames,
+                recoveryFrames);
+            float recoveryEase = Smooth(recovery);
+
+            float anticipation = startupFrames > 0
+                ? Smooth(startup) *
+                  (1f - 0.68f * Smooth(active)) *
+                  (1f - recoveryEase)
+                : 0f;
+
+            int activeFrame = frame - startupFrames;
+            float impact = 0f;
+            if (activeFrame >= 0 && activeFrame < activeFrames)
+            {
+                impact = activeFrames == 1
+                    ? 1f
+                    : Mathf.Max(
+                        0f,
+                        Mathf.Sin(
+                            Mathf.Clamp01((activeFrame + 1f) / activeFrames) * Mathf.PI));
+            }
+
+            float followSource = activeFrames > 0
+                ? Smooth(active)
+                : Smooth(startup);
+            float followThrough = followSource * (1f - recoveryEase);
+
+            return new AttackPosePhase(
+                overall,
+                startup,
+                active,
+                recovery,
+                anticipation,
+                impact,
+                followThrough,
+                recoveryEase);
         }
 
         void OnDestroy()
         {
             for (int i = 0; i < _materials.Count; i++)
                 if (_materials[i].Material != null) Destroy(_materials[i].Material);
+        }
+
+        public static int SelectPresentationFrame(int currentFrame, int lastSimulatedFrame)
+        {
+            return lastSimulatedFrame >= 0 ? lastSimulatedFrame : currentFrame;
+        }
+
+        static float SegmentProgress(int localFrame, int frames)
+        {
+            if (frames <= 0) return localFrame >= 0 ? 1f : 0f;
+            return Mathf.Clamp01((localFrame + 1f) / frames);
+        }
+
+        static float RecoverySettle(float recoveryEase)
+        {
+            recoveryEase = Mathf.Clamp01(recoveryEase);
+            return 4f * recoveryEase * (1f - recoveryEase);
         }
 
         static void Move(Transform node, Vector3 localOffset)
