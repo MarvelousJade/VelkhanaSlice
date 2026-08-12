@@ -895,6 +895,10 @@ namespace VelkhanaSlice.EditorTools
             brain.mediumRange = 17f;
             brain.combatEntryVerticalRange = 7.5f;
             brain.neutralFrames = 30;
+            // Project-authored readability cadence: after every two completed ground sequences,
+            // schedule a visible 0.8 s minimum walk with no selector RNG call during that floor.
+            brain.groundSequencesPerReposition = 2;
+            brain.minimumPacingRepositionFrames = 48;
             brain.automaticEnrage = true;
             brain.rageDamageThreshold = 360f;
             brain.automaticPhaseProgression = true;

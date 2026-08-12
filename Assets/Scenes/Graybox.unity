@@ -2040,6 +2040,8 @@ MonoBehaviour:
   repositionDistanceTolerance: 1.25
   repositionDecisionIntervalFrames: 12
   maxRepositionFrames: 240
+  groundSequencesPerReposition: 2
+  minimumPacingRepositionFrames: 48
   repositionOrbitWeight: 0.55
   arenaCenter: {x: 0, y: 0, z: 0}
   arenaRadius: 28
