@@ -42,6 +42,8 @@ namespace VelkhanaSlice.PlayTests
             var brain = root.AddComponent<VelkhanaBrain>();
             brain.hunter = hunter.transform;
             brain.neutralFrames = 5;
+            brain.groundSequencesPerReposition = 0;
+            brain.minimumPacingRepositionFrames = 1;
             brain.closeRange = 6f;
             brain.mediumRange = 16f;
             brain.options.Add(new MonsterAttackOption
@@ -465,6 +467,10 @@ namespace VelkhanaSlice.PlayTests
             Assert.AreSame(hunter.transform, brain.hunter, "brain is not targeting the hunter");
             Assert.IsNotEmpty(brain.options, "brain has no attack options");
             Assert.IsNotEmpty(brain.armoredParts, "brain has no armoured parts");
+            Assert.AreEqual(2, brain.groundSequencesPerReposition,
+                "graybox should visibly walk after every two completed ground sequences");
+            Assert.AreEqual(48, brain.minimumPacingRepositionFrames,
+                "the graybox scheduled walking bout should remain readable for 0.8 seconds");
 
             var stateDebug = Object.FindFirstObjectByType<CombatHud>();
             Assert.IsNotNull(stateDebug, "runtime player/monster state debugger is missing");

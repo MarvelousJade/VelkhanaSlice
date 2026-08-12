@@ -39,6 +39,8 @@ namespace VelkhanaSlice.PlayTests
             brain.repositionDecisionIntervalFrames = 2;
             brain.repositionSpeed = 6f;
             brain.maxRepositionFrames = 500;
+            brain.groundSequencesPerReposition = 0;
+            brain.minimumPacingRepositionFrames = 1;
             brain.options.Add(new MonsterAttackOption
             {
                 attack = attack,
@@ -120,6 +122,351 @@ namespace VelkhanaSlice.PlayTests
 
                 Assert.AreSame(attack, brain.CurrentAttack,
                     "the brain should attack once repositioning enters its usable range band");
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+                Object.DestroyImmediate(hunter);
+                Object.DestroyImmediate(attack);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator OrdinaryRangeRecoveryKeepsItsLegacyFirstFrameDecision()
+        {
+            AttackDefinition attack = Attack(2, 1, 2);
+            VelkhanaBrain brain = Brain(
+                new Vector3(0f, 0f, 20f), RangeBand.Close, attack,
+                out GameObject root, out GameObject hunter);
+            brain.minimumPacingRepositionFrames = 60;
+
+            try
+            {
+                int budget = 100;
+                while (brain.CurrentState != VelkhanaState.Reposition && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+
+                Assert.AreEqual(VelkhanaState.Reposition, brain.CurrentState);
+                Assert.IsFalse(brain.IsPacingReposition);
+
+                hunter.transform.position = root.transform.position + root.transform.forward * 3f;
+                yield return new WaitForFixedUpdate();
+
+                Assert.AreSame(attack, brain.CurrentAttack,
+                    "the pacing-only floor must not delay the legacy frame-one fallback decision");
+                Assert.AreEqual(VelkhanaState.Attacking, brain.CurrentState);
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+                Object.DestroyImmediate(hunter);
+                Object.DestroyImmediate(attack);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator ShippedTwoSequenceCadenceForcesVisibleWalkingWhenAnAttackIsLegal()
+        {
+            AttackDefinition attack = Attack(2, 1, 2);
+            VelkhanaBrain brain = Brain(
+                new Vector3(0f, 0f, 3f), RangeBand.Close, attack,
+                out GameObject root, out GameObject hunter);
+            brain.options[0].cooldownFrames = 0;
+            brain.groundSequencesPerReposition = 2;
+            brain.minimumPacingRepositionFrames = 18;
+            brain.repositionDecisionIntervalFrames = 3;
+
+            try
+            {
+                int budget = 250;
+                while (brain.CurrentAttack == null && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+                Assert.AreSame(attack, brain.CurrentAttack);
+
+                while (brain.CurrentAttack != null && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+
+                Assert.AreEqual(VelkhanaState.Observe, brain.CurrentState,
+                    "one sequence must not trigger the shipped every-two cadence");
+                Assert.IsFalse(brain.IsPacingReposition);
+                Assert.AreEqual(1, brain.CompletedGroundSequencesSinceReposition);
+                Assert.AreEqual(1, brain.GroundSequencesUntilReposition);
+
+                while (brain.CurrentAttack == null && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+                Assert.AreSame(attack, brain.CurrentAttack);
+
+                while (brain.CurrentAttack != null && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+
+                Assert.AreEqual(VelkhanaState.Reposition, brain.CurrentState,
+                    "the second sequence should schedule locomotion even though the close attack remains legal");
+                Assert.IsTrue(brain.IsPacingReposition);
+                Assert.AreEqual(0, brain.CompletedGroundSequencesSinceReposition);
+                Assert.AreEqual(2, brain.GroundSequencesUntilReposition);
+                Vector3 walkingStart = root.transform.position;
+
+                for (int frame = 1; frame < brain.minimumPacingRepositionFrames; frame++)
+                {
+                    yield return new WaitForFixedUpdate();
+                    Assert.AreEqual(VelkhanaState.Reposition, brain.CurrentState,
+                        $"a legal attack interrupted the minimum walking bout on frame {frame}");
+                    Assert.IsNull(brain.CurrentAttack);
+                }
+
+                Assert.Greater(
+                    Vector3.Distance(walkingStart, root.transform.position),
+                    0.5f,
+                    "the scheduled Reposition state must produce visible root locomotion");
+
+                yield return new WaitForFixedUpdate();
+                Assert.AreSame(attack, brain.CurrentAttack,
+                    "selection should resume on the configured minimum-frame boundary");
+                Assert.AreEqual(VelkhanaState.Attacking, brain.CurrentState);
+                Assert.IsFalse(brain.IsPacingReposition);
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+                Object.DestroyImmediate(hunter);
+                Object.DestroyImmediate(attack);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator ScheduledWalkingFloorDoesNotConsumeSelectionRng()
+        {
+            AttackDefinition first = Attack(2, 1, 2);
+            AttackDefinition second = Attack(2, 1, 2);
+            VelkhanaBrain brain = Brain(
+                new Vector3(0f, 0f, 3f), RangeBand.Close, first,
+                out GameObject root, out GameObject hunter);
+            brain.options[0].cooldownFrames = 0;
+            brain.options.Add(new MonsterAttackOption
+            {
+                attack = second,
+                band = RangeBand.Close,
+                weight = 1f,
+                cooldownFrames = 0,
+            });
+            brain.groundSequencesPerReposition = 1;
+            brain.minimumPacingRepositionFrames = 12;
+            brain.repositionDecisionIntervalFrames = 3;
+            brain.selectionSeed = 42;
+
+            try
+            {
+                int budget = 100;
+                while (!brain.IsPacingReposition && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+
+                int rollsAtWalkStart = brain.SelectionRollCount;
+                for (int frame = 1; frame < brain.minimumPacingRepositionFrames; frame++)
+                {
+                    yield return new WaitForFixedUpdate();
+                    Assert.AreEqual(rollsAtWalkStart, brain.SelectionRollCount,
+                        $"the project walking floor consumed selector RNG on frame {frame}");
+                }
+
+                yield return new WaitForFixedUpdate();
+                Assert.Greater(brain.SelectionRollCount, rollsAtWalkStart,
+                    "the next THK selection should consume RNG only after the floor completes");
+                Assert.IsTrue(brain.CurrentAttack == first || brain.CurrentAttack == second);
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+                Object.DestroyImmediate(hunter);
+                Object.DestroyImmediate(first);
+                Object.DestroyImmediate(second);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator AerialSequenceDoesNotCountAsGroundPacingProgress()
+        {
+            AttackDefinition groundAttack = Attack(2, 1, 2);
+            AttackDefinition aerialAttack = Attack(2, 1, 2);
+            VelkhanaBrain brain = Brain(
+                new Vector3(0f, 0f, 3f), RangeBand.Close, groundAttack,
+                out GameObject root, out GameObject hunter);
+            brain.options[0].cooldownFrames = 0;
+            brain.groundSequencesPerReposition = 2;
+            brain.minimumPacingRepositionFrames = 8;
+            brain.options.Add(new MonsterAttackOption
+            {
+                attack = aerialAttack,
+                aerialFamily = VelkhanaAerialOptionFamily.Global051,
+                airRequirement = VelkhanaAirRequirement.Airborne,
+                landAfterSequence = true,
+                thkNode = "Global.node_051",
+            });
+            brain.combatMainNode006Predicate101 = true;
+            brain.landingFrames = 2;
+
+            try
+            {
+                int budget = 100;
+                while (brain.CurrentAttack == null && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+                while (brain.CurrentAttack != null && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+
+                Assert.AreEqual(1, brain.CompletedGroundSequencesSinceReposition);
+                Assert.AreEqual(1, brain.GroundSequencesUntilReposition);
+
+                brain.options[0].takeOffBeforeSequence = true;
+                brain.options[0].enterAerialChooserAfterTakeoff = true;
+                brain.takeoffFrames = 2;
+
+                while (brain.CurrentAttack != aerialAttack && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+                Assert.AreSame(aerialAttack, brain.CurrentAttack);
+
+                while (brain.IsAirborne && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+
+                Assert.AreEqual(1, brain.CompletedGroundSequencesSinceReposition,
+                    "aerial completion must neither advance nor erase partial ground cadence progress");
+                Assert.AreEqual(1, brain.GroundSequencesUntilReposition);
+                Assert.IsFalse(brain.IsPacingReposition);
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+                Object.DestroyImmediate(hunter);
+                Object.DestroyImmediate(groundAttack);
+                Object.DestroyImmediate(aerialAttack);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator RageInterruptCancelsRatherThanResumesScheduledWalking()
+        {
+            AttackDefinition attack = Attack(2, 1, 2);
+            VelkhanaBrain brain = Brain(
+                new Vector3(0f, 0f, 3f), RangeBand.Close, attack,
+                out GameObject root, out GameObject hunter);
+            brain.options[0].cooldownFrames = 0;
+            brain.groundSequencesPerReposition = 1;
+            brain.minimumPacingRepositionFrames = 18;
+            brain.rageTransitionFrames = 2;
+
+            try
+            {
+                int budget = 100;
+                while (!brain.IsPacingReposition && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+
+                Assert.AreEqual(VelkhanaState.Reposition, brain.CurrentState);
+                yield return new WaitForFixedUpdate();
+                brain.BeginEnrage();
+
+                Assert.AreEqual(VelkhanaState.RageTransition, brain.CurrentState);
+                Assert.IsFalse(brain.IsPacingReposition,
+                    "rage is an explicit hard interrupt to the readability walk");
+
+                for (int i = 0; i < brain.rageTransitionFrames; i++)
+                    yield return new WaitForFixedUpdate();
+
+                Assert.AreEqual(VelkhanaState.Observe, brain.CurrentState);
+                Assert.IsFalse(brain.IsPacingReposition,
+                    "the interrupted pacing frames must not resume after the reaction");
+                Assert.AreEqual(0, brain.CompletedGroundSequencesSinceReposition);
+                Assert.AreEqual(1, brain.GroundSequencesUntilReposition,
+                    "a fresh completed sequence should be required to schedule another bout");
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+                Object.DestroyImmediate(hunter);
+                Object.DestroyImmediate(attack);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator PendingRageCancelsCadenceBeforeTheScheduledWalkStarts()
+        {
+            AttackDefinition attack = Attack(2, 1, 2);
+            VelkhanaBrain brain = Brain(
+                new Vector3(0f, 0f, 3f), RangeBand.Close, attack,
+                out GameObject root, out GameObject hunter);
+            brain.options[0].cooldownFrames = 0;
+            brain.groundSequencesPerReposition = 1;
+            brain.minimumPacingRepositionFrames = 18;
+            brain.automaticEnrage = true;
+            brain.rageDamageThreshold = 1f;
+            brain.rageTransitionFrames = 2;
+
+            try
+            {
+                int budget = 100;
+                while (brain.CurrentAttack == null && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+
+                brain.ApplyBossDamage(1f);
+                Assert.AreEqual(VelkhanaState.Attacking, brain.CurrentState,
+                    "rage waits for the uncancellable attack timeline to finish");
+
+                while (brain.CurrentAttack != null && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+
+                Assert.AreEqual(VelkhanaState.RageTransition, brain.CurrentState);
+                Assert.IsFalse(brain.IsPacingReposition);
+                Assert.AreEqual(0, brain.CompletedGroundSequencesSinceReposition,
+                    "a pending reaction must cancel the cadence registered at sequence completion");
+                Assert.AreEqual(1, brain.GroundSequencesUntilReposition);
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+                Object.DestroyImmediate(hunter);
+                Object.DestroyImmediate(attack);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator ToppleInterruptCancelsRatherThanResumesScheduledWalking()
+        {
+            AttackDefinition attack = Attack(2, 1, 2);
+            VelkhanaBrain brain = Brain(
+                new Vector3(0f, 0f, 3f), RangeBand.Close, attack,
+                out GameObject root, out GameObject hunter);
+            brain.options[0].cooldownFrames = 0;
+            brain.groundSequencesPerReposition = 1;
+            brain.minimumPacingRepositionFrames = 18;
+            brain.partBreakToppleFrames = 2;
+
+            var partObject = new GameObject("PacingInterruptPart");
+            partObject.transform.SetParent(root.transform);
+            partObject.AddComponent<BoxCollider>();
+            BodyPartHurtbox hurtbox = partObject.AddComponent<BodyPartHurtbox>();
+            hurtbox.breakThreshold = 1f;
+            hurtbox.toppleOnBreak = true;
+            brain.RefreshHurtboxBindings();
+
+            try
+            {
+                int budget = 100;
+                while (!brain.IsPacingReposition && budget-- > 0)
+                    yield return new WaitForFixedUpdate();
+
+                Assert.AreEqual(VelkhanaState.Reposition, brain.CurrentState);
+                hurtbox.Apply(1f, 0f);
+
+                Assert.AreEqual(VelkhanaState.Toppled, brain.CurrentState);
+                Assert.IsFalse(brain.IsPacingReposition,
+                    "topple is an explicit hard interrupt to the readability walk");
+
+                for (int i = 0; i < brain.partBreakToppleFrames; i++)
+                    yield return new WaitForFixedUpdate();
+
+                Assert.AreEqual(VelkhanaState.Observe, brain.CurrentState);
+                Assert.IsFalse(brain.IsPacingReposition,
+                    "the interrupted pacing frames must not resume after the reaction");
+                Assert.AreEqual(0, brain.CompletedGroundSequencesSinceReposition);
+                Assert.AreEqual(1, brain.GroundSequencesUntilReposition,
+                    "a fresh completed sequence should be required to schedule another bout");
             }
             finally
             {

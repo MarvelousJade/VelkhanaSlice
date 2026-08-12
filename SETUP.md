@@ -58,6 +58,17 @@ them to the visible neutral/ice-stage presentation, but deliberately does not re
 or claim its engine meaning has been proven. The HUD displays context, mode, source node, range
 target and sequence step so the decision can be audited while playing.
 
+Visible walking is a clearly labelled project-authored pacing layer around that decoded selector.
+After every two completed grounded action sequences since her last reposition, Velkhana enters
+`Reposition` and normally walks for at least 48 frames (0.8 seconds), moving toward a useful attack
+distance or orbiting when already in band. Ordinary range-recovery walking also resets this cadence. While the minimum pacing floor is active, no THK selection RNG call is made, and
+the walk never interrupts startup/active/recovery. Its movement can still change the distance and
+cooldown context of later selections, so it does not promise identical future outcomes for the same
+seed. Rage and topple reactions are hard interrupts: they cancel the current pacing bout rather
+than resuming its remaining frames. Setting `groundSequencesPerReposition` to zero disables the cadence. Ordinary
+out-of-range recovery still uses the same `Reposition` state and retains its original first-frame,
+interval, and timeout decisions without the pacing-only 48-frame floor.
+
 The scoped close opener preserves the source-order `Global.node_105/106/108` gateway and
 `Global.node_087` distance/random tables. After the selected 004/006/009 opener finishes its full
 startup, active and recovery timeline, its post-motion distance drives `Global.node_090/089/088`
@@ -152,7 +163,8 @@ outside the game window and does not depend on window focus.
 lock-on, Slinger Burst, tail sever. See the plan document for where each belongs.
 
 Velkhana's repositioning is direct arena locomotion rather than obstacle-aware navigation, and
-the breath beam is a presentation-only primitive rather than a final effect. This is a semantic
+the fixed walking cadence is a project readability choice rather than a decoded EM124 probability.
+The breath beam is a presentation-only primitive rather than a final effect. This is a semantic
 reconstruction of the highest-value combat paths, not a literal execution of all 453 decoded nodes;
 Palico targeting, blinded/mount/turf-war/area-change tables and unresolved engine predicates remain
 outside the demo. Death is tracked on `HunterHealth` but nothing reacts to it, so there is still no

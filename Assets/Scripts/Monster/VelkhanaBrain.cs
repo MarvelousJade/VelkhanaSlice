@@ -246,6 +246,13 @@ namespace VelkhanaSlice.Monster
         public Vector3 arenaCenter = Vector3.zero;
         [Min(1f)] public float arenaRadius = 28f;
 
+        [Header("Project-authored ground locomotion pacing")]
+        [Tooltip("Completed grounded attack sequences before a visible reposition bout. Zero disables the project-only cadence; this is not a decoded EM124 probability.")]
+        [Min(0)] public int groundSequencesPerReposition;
+
+        [Tooltip("Minimum frames spent in a scheduled pacing walk before attack selection resumes. Ordinary range-recovery repositioning keeps its legacy decision timing. Rage and topple reactions can interrupt this project-only bout without resuming it.")]
+        [Min(1)] public int minimumPacingRepositionFrames = 48;
+
         [Header("Aerial context (frames @ 60 Hz)")]
         [Min(1)] public int takeoffFrames = 42;
         [Min(1)] public int landingFrames = 36;
@@ -316,6 +323,12 @@ namespace VelkhanaSlice.Monster
             ? Mathf.Max(0, _activeToppleFrames - StateFrame)
             : 0;
         public int ActiveToppleFrames => _activeToppleFrames;
+        public bool IsPacingReposition { get; private set; }
+        public int CompletedGroundSequencesSinceReposition => _completedGroundSequencesSinceReposition;
+        public int GroundSequencesUntilReposition => groundSequencesPerReposition <= 0
+            ? 0
+            : Mathf.Max(0, groundSequencesPerReposition - _completedGroundSequencesSinceReposition);
+        public int SelectionRollCount { get; private set; }
 
         public event Action<ArmorStage> StageChanged;
         public event Action<VelkhanaState> StateChanged;
@@ -330,9 +343,11 @@ namespace VelkhanaSlice.Monster
         int _rageCooldownRemaining;
         int _activeToppleFrames;
         int _toppleImmunityRemaining;
+        int _completedGroundSequencesSinceReposition;
         float _rageDamage;
         float _orbitSign = 1f;
         bool _ragePending;
+        bool _pacingRepositionPending;
         MonsterAttackOption _activeOption;
         MonsterAttackOption _pendingTakeoffOption;
         AttackDefinition[] _followUps = Array.Empty<AttackDefinition>();
@@ -454,6 +469,7 @@ namespace VelkhanaSlice.Monster
         void TickObserve()
         {
             if (TryEnterPendingRage()) return;
+            if (TryEnterPendingPacingReposition()) return;
 
             TurnTowardHunter(idleTurnDegreesPerSecond);
 
@@ -493,6 +509,39 @@ namespace VelkhanaSlice.Monster
                 return;
             }
 
+            BeginReposition(false);
+        }
+
+        bool TryEnterPendingPacingReposition()
+        {
+            if (groundSequencesPerReposition <= 0)
+            {
+                CancelPacingRepositionCadence();
+                return false;
+            }
+            if (!_pacingRepositionPending) return false;
+            if (hunter == null || IsAirborne)
+            {
+                CancelPacingRepositionCadence();
+                return false;
+            }
+            BeginReposition(true);
+            return true;
+        }
+
+        void CancelPacingRepositionCadence()
+        {
+            _pacingRepositionPending = false;
+            _completedGroundSequencesSinceReposition = 0;
+            IsPacingReposition = false;
+        }
+
+        void BeginReposition(bool pacingReposition)
+        {
+            // Any reposition resets the cadence: fallback range recovery is already a visible
+            // movement bout. A later rage/topple transition also cancels rather than resumes it.
+            CancelPacingRepositionCadence();
+            IsPacingReposition = pacingReposition;
             ChooseRepositionTarget();
             Vector3 toHunter = DirectionToHunter();
             _orbitSign = Vector3.Dot(transform.right, toHunter) >= 0f ? -1f : 1f;
@@ -511,7 +560,16 @@ namespace VelkhanaSlice.Monster
             StateFrame++;
             TurnTowardHunter(repositionTurnDegreesPerSecond);
 
-            if (StateFrame == 1 || StateFrame % Mathf.Max(1, repositionDecisionIntervalFrames) == 0)
+            int decisionInterval = Mathf.Max(1, repositionDecisionIntervalFrames);
+            int minimumFrames = IsPacingReposition
+                ? Mathf.Max(1, minimumPacingRepositionFrames)
+                : 1;
+            bool decisionFrame = IsPacingReposition
+                ? StateFrame == minimumFrames ||
+                  (StateFrame > minimumFrames &&
+                   (StateFrame - minimumFrames) % decisionInterval == 0)
+                : StateFrame == 1 || StateFrame % decisionInterval == 0;
+            if (decisionFrame)
             {
                 if (TryChooseGroundDecision(
                         out MonsterAttackOption picked,
@@ -539,7 +597,10 @@ namespace VelkhanaSlice.Monster
                            moveDirection * (Mathf.Max(0f, speed) * Time.fixedDeltaTime);
             transform.position = ClampToArena(next);
 
-            if (StateFrame >= Mathf.Max(1, maxRepositionFrames))
+            int repositionLimit = IsPacingReposition
+                ? Mathf.Max(minimumFrames, maxRepositionFrames)
+                : Mathf.Max(1, maxRepositionFrames);
+            if (StateFrame >= repositionLimit)
                 EnterState(VelkhanaState.Observe);
         }
 
@@ -660,6 +721,7 @@ namespace VelkhanaSlice.Monster
         bool TryEnterPendingRage()
         {
             if (!_ragePending || CurrentState == VelkhanaState.RageTransition) return false;
+            CancelPacingRepositionCadence();
             EnterState(VelkhanaState.RageTransition);
             return true;
         }
@@ -801,10 +863,12 @@ namespace VelkhanaSlice.Monster
         void FinishSequence()
         {
             bool land = _activeOption != null && _activeOption.landAfterSequence && IsAirborne;
+            bool completedGroundSequence = _activeOption != null && !IsAirborne;
             CurrentAttack = null;
             AttackFrame = 0;
 
             RegisterCompletedSequence();
+            RegisterGroundRepositionCadence(completedGroundSequence);
 
             if (land)
             {
@@ -813,7 +877,21 @@ namespace VelkhanaSlice.Monster
             }
 
             ClearSequence();
-            if (!TryEnterPendingRage()) EnterState(VelkhanaState.Observe);
+            if (TryEnterPendingRage()) return;
+            if (TryEnterPendingPacingReposition()) return;
+            EnterState(VelkhanaState.Observe);
+        }
+
+        void RegisterGroundRepositionCadence(bool completedGroundSequence)
+        {
+            if (!completedGroundSequence || groundSequencesPerReposition <= 0) return;
+
+            _completedGroundSequencesSinceReposition++;
+            if (_completedGroundSequencesSinceReposition < groundSequencesPerReposition) return;
+
+            // No THK selection RNG call is made while the minimum pacing floor is active. Movement
+            // during that floor can still change the distance/cooldown context of later decisions.
+            _pacingRepositionPending = true;
         }
 
         void ClearSequence()
@@ -1396,6 +1474,7 @@ namespace VelkhanaSlice.Monster
 
         float NextSelectionValue()
         {
+            SelectionRollCount++;
             if (!deterministicSelection) return UnityEngine.Random.value;
             if (_random == null || _randomSeed != selectionSeed)
             {
@@ -1521,6 +1600,7 @@ namespace VelkhanaSlice.Monster
             if (CurrentState == next) return;
             CurrentState = next;
             StateFrame = 0;
+            if (next != VelkhanaState.Reposition) IsPacingReposition = false;
             StateChanged?.Invoke(next);
         }
 
@@ -1579,6 +1659,8 @@ namespace VelkhanaSlice.Monster
 
         void BeginTopple(VelkhanaToppleCause cause, int durationFrames)
         {
+            CancelPacingRepositionCadence();
+
             // A topple is an interrupt, not a completed action sequence: no cooldown/history/phase
             // completion is registered here and no pending follow-up survives the knockdown.
             CurrentAttack = null;
@@ -1620,6 +1702,7 @@ namespace VelkhanaSlice.Monster
         {
             if (enraged) return;
 
+            CancelPacingRepositionCadence();
             enraged = true;
             _rageDamage = 0f;
             _rageFramesRemaining = Mathf.Max(1, rageDurationFrames);

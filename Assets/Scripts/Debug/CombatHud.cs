@@ -302,12 +302,15 @@ namespace VelkhanaSlice.DebugTools
             y += 29f;
 
             float rageFill = brain.enraged ? 1f : brain.RageBuild;
+            string walkCadence = brain.groundSequencesPerReposition <= 0
+                ? "off"
+                : brain.IsPacingReposition ? "NOW" : $"{brain.GroundSequencesUntilReposition}seq";
             GUI.Label(
-                new Rect(x, y, width * 0.57f, 20f),
-                $"BUCKET  {brain.CombatMode}    ICE  {brain.stage}",
+                new Rect(x, y, width * 0.69f, 20f),
+                $"BUCKET  {brain.CombatMode}    ICE  {brain.stage}    WALK {walkCadence}",
                 _body);
             DrawBar(
-                new Rect(x + width * 0.58f, y, width * 0.42f, 18f),
+                new Rect(x + width * 0.70f, y, width * 0.30f, 18f),
                 rageFill,
                 new Color(1f, 0.25f, 0.08f),
                 brain.enraged ? "RAGE  ENRAGED" : $"RAGE  {brain.RageBuild:P0}");
@@ -509,7 +512,9 @@ namespace VelkhanaSlice.DebugTools
                     duration = CurrentMonsterPacingFrames();
                     break;
                 case VelkhanaState.Reposition:
-                    duration = brain.maxRepositionFrames;
+                    duration = brain.IsPacingReposition
+                        ? Mathf.Max(brain.minimumPacingRepositionFrames, brain.maxRepositionFrames)
+                        : brain.maxRepositionFrames;
                     break;
                 case VelkhanaState.RageTransition:
                     duration = brain.rageTransitionFrames;
@@ -624,14 +629,23 @@ namespace VelkhanaSlice.DebugTools
                     if (brain.IsAirborne)
                         return "dispatch Combat_Main.node_006's aerial family on the next fixed step.";
                     int remaining = Mathf.Max(0, CurrentMonsterPacingFrames() - brain.StateFrame);
-                    return $"turn toward the hunter, then evaluate the ground THK tables in {remaining}f.";
+                    string nextWalk = brain.groundSequencesPerReposition > 0
+                        ? $"; pacing walk in {brain.GroundSequencesUntilReposition} sequence(s)"
+                        : string.Empty;
+                    return $"turn toward the hunter, then evaluate the ground THK tables in {remaining}f{nextWalk}.";
                 case VelkhanaState.Reposition:
                     string direction = currentDistance > brain.DesiredDistance + brain.repositionDistanceTolerance
                         ? "close distance"
                         : currentDistance < brain.DesiredDistance - brain.repositionDistanceTolerance
                             ? "create distance"
                             : "orbit while turning";
-                    return $"{direction} toward the {brain.DesiredBand} option target ({brain.DesiredDistance:0.0}m).";
+                    int minimumRemaining = brain.IsPacingReposition
+                        ? Mathf.Max(0, brain.minimumPacingRepositionFrames - brain.StateFrame)
+                        : 0;
+                    string reason = minimumRemaining > 0
+                        ? $"scheduled pacing walk ({minimumRemaining}f minimum remaining; reactions may interrupt)"
+                        : brain.IsPacingReposition ? "scheduled pacing walk" : "range recovery";
+                    return $"{reason}: {direction} toward the {brain.DesiredBand} option target ({brain.DesiredDistance:0.0}m).";
                 case VelkhanaState.Attacking:
                     int frame = DisplayedMonsterAttackFrame();
                     string tracking = brain.CurrentAttack != null && brain.CurrentAttack.CanTrack(frame)
