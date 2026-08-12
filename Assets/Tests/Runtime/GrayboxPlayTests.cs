@@ -466,6 +466,14 @@ namespace VelkhanaSlice.PlayTests
             Assert.IsNotEmpty(brain.options, "brain has no attack options");
             Assert.IsNotEmpty(brain.armoredParts, "brain has no armoured parts");
 
+            var stateDebug = Object.FindFirstObjectByType<CombatHud>();
+            Assert.IsNotNull(stateDebug, "runtime player/monster state debugger is missing");
+            Assert.AreSame(hunter, stateDebug.hunterController);
+            Assert.AreSame(brain, stateDebug.brain);
+            Assert.IsTrue(stateDebug.Visible, "state debugger should be visible on first launch");
+            Assert.IsNotNull(stateDebug.transform.Find("AiTargetLine"));
+            Assert.IsNotNull(stateDebug.transform.Find("AiDesiredRange"));
+
             var volumeDebug = Object.FindFirstObjectByType<CombatVolumeDebug>();
             Assert.IsNotNull(volumeDebug, "runtime combat volume overlay is missing");
             Assert.AreSame(hunter, volumeDebug.hunterController);

@@ -19,7 +19,7 @@ Unity 6000.4.11f1. Open the folder in Unity Hub; the editor generates `Library/`
 | `Monster/VelkhanaPresentation.cs` | Procedural body, wing, neck, tail, breath and phase poses for the placeholder monster |
 | `CameraRig.cs` | Angled follow camera framing hunter and monster together |
 | `Debug/ScriptedPlaythrough.cs` | Virtual gamepad that plays a scripted fight and screenshots each beat |
-| `Debug/CombatHud.cs` | IMGUI readout of health, charge, attack frame and part damage |
+| `Debug/CombatHud.cs` | F2 state debugger with player/monster panels, action timelines, world labels and AI spacing intent |
 | `Tests/Editor/CombatMathTests.cs` | Frame-window and damage rules the acceptance criteria depend on |
 
 The simulation runs at a fixed 60 Hz (`ProjectSettings/TimeManager.asset`). All gameplay logic is
@@ -106,6 +106,14 @@ sheathes a drawn sword before accelerating; attacking during that transition can
 correct stationary or moving draw route while preserving the decoded source-node identity. A held
 moving draw stays in N021/ActionNo7 while charging, then releases through compressed N031 into N001;
 the stationary N022 route remains distinct and uses compressed N023 to enter N003.
+
+Press **F2** to toggle the state debugger. Its left panel explains the player's current controller
+state, WP00 node/ActionNo, charge or attack phase, buffered follow-up and defensive flags. The right
+panel shows Velkhana's high-level state, context, unresolved Mode bucket, ice/rage state, spacing
+target, current THK trace and part gauges. Labels above both actors mirror their live state. The
+line between them changes colour for too close/in band/too far; while the AI is repositioning, a
+ring around the hunter shows the desired separation. Press **F3** independently to toggle exact
+hurtbox and attack-volume outlines.
 
 ## Tests
 

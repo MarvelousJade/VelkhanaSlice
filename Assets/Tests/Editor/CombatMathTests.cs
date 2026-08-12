@@ -1,6 +1,7 @@
 using NUnit.Framework;
 using UnityEngine;
 using VelkhanaSlice.Combat;
+using VelkhanaSlice.DebugTools;
 
 namespace VelkhanaSlice.Tests
 {
@@ -34,6 +35,21 @@ namespace VelkhanaSlice.Tests
             Assert.IsTrue(attack.IsHitActive(10), "first active frame");
             Assert.IsTrue(attack.IsHitActive(13), "last active frame");
             Assert.IsFalse(attack.IsHitActive(14), "recovery must not deal damage");
+        }
+
+        [TestCase(9, CombatDebugAttackPhase.Startup)]
+        [TestCase(10, CombatDebugAttackPhase.Active)]
+        [TestCase(13, CombatDebugAttackPhase.Active)]
+        [TestCase(14, CombatDebugAttackPhase.Recovery)]
+        [TestCase(33, CombatDebugAttackPhase.Recovery)]
+        [TestCase(34, CombatDebugAttackPhase.Complete)]
+        public void StateDebuggerTimelineUsesAuthoritativeHalfOpenAttackPhases(
+            int frame,
+            CombatDebugAttackPhase expected)
+        {
+            var attack = MakeAttack();
+
+            Assert.AreEqual(expected, CombatHud.ClassifyAttackPhase(attack, frame));
         }
 
         [Test]
