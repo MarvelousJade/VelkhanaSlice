@@ -184,6 +184,8 @@ namespace VelkhanaSlice.Hunter
         public bool IsLaunched => CurrentState == State.Launched;
         public bool IsKnockedDown => IsLaunched && _landedFromLaunch;
         public int LastSimulatedAttackFrame { get; private set; } = -1;
+        public bool IsAutomationInputEnabled => _automationInputEnabled;
+        public HunterAutomationInput AutomationInput => _automationInput;
 
         CharacterController _cc;
         int _stateFrame;
@@ -220,6 +222,8 @@ namespace VelkhanaSlice.Hunter
         uint _secondaryPressUpdate = uint.MaxValue;
         uint _dodgePressUpdate = uint.MaxValue;
         uint _sheathePressUpdate = uint.MaxValue;
+        bool _automationInputEnabled;
+        HunterAutomationInput _automationInput;
 
         void Awake()
         {
@@ -267,6 +271,12 @@ namespace VelkhanaSlice.Hunter
 
         void PollInput()
         {
+            if (_automationInputEnabled)
+            {
+                ApplyAutomationHeldState();
+                return;
+            }
+
             var gp = Gamepad.current;
             var kb = Keyboard.current;
             var mouse = Mouse.current;
@@ -309,6 +319,48 @@ namespace VelkhanaSlice.Hunter
             _guardHeld =
                 (gp != null && gp.rightTrigger.ReadValue() > 0.5f) ||
                 (kb != null && (kb.rKey.isPressed || kb.leftCtrlKey.isPressed));
+        }
+
+        /// <summary>
+        /// Replaces device polling with a persistent control state. Rising button edges are
+        /// latched immediately so a command applied immediately before a fixed step affects that
+        /// step rather than waiting for another render-frame Update.
+        /// </summary>
+        public void SetAutomationInput(HunterAutomationInput next)
+        {
+            HunterAutomationInput previous = _automationInput;
+            _automationInput = next;
+            _automationInputEnabled = true;
+
+            _primaryPressed |= next.primary && !previous.primary;
+            _secondaryPressed |= next.secondary && !previous.secondary;
+            _dodgePressed |= next.dodge && !previous.dodge;
+            _sheathePressed |= next.sheathe && !previous.sheathe;
+            ApplyAutomationHeldState();
+        }
+
+        /// <summary>Returns control to the live Input System and releases all injected controls.</summary>
+        public void ClearAutomationInput()
+        {
+            _automationInput = HunterAutomationInput.Released;
+            _automationInputEnabled = false;
+            _moveInput = Vector2.zero;
+            _aimInput = Vector2.zero;
+            _primaryHeld = false;
+            _secondaryHeld = false;
+            _runHeld = false;
+            _guardHeld = false;
+            ClearEdgeInput();
+        }
+
+        void ApplyAutomationHeldState()
+        {
+            _moveInput = _automationInput.Move;
+            _aimInput = _automationInput.Aim;
+            _primaryHeld = _automationInput.primary;
+            _secondaryHeld = _automationInput.secondary;
+            _runHeld = _automationInput.run;
+            _guardHeld = _automationInput.guard;
         }
 
         static bool LatchPressOncePerInputUpdate(
@@ -356,6 +408,10 @@ namespace VelkhanaSlice.Hunter
                 _aimDirection = new Vector3(_aimInput.x, 0f, _aimInput.y).normalized;
                 return;
             }
+
+            // A zero injected aim means "retain heading". Never let a physical mouse leak into
+            // deterministic automation while the override owns input.
+            if (_automationInputEnabled) return;
 
             var mouse = Mouse.current;
             if (mouse == null || aimCamera == null) return;

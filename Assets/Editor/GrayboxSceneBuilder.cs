@@ -6,6 +6,7 @@ using UnityEditor.Build.Reporting;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.Rendering;
+using VelkhanaSlice.Automation;
 using VelkhanaSlice.Combat;
 using VelkhanaSlice.Hunter;
 using VelkhanaSlice.Monster;
@@ -66,6 +67,14 @@ namespace VelkhanaSlice.EditorTools
 
             // Inert unless the player is launched with -autoshots, so it costs nothing in a normal run.
             new GameObject("ScriptedPlaythrough").AddComponent<DebugTools.ScriptedPlaythrough>();
+
+            // Loopback API is enabled by -automation in a player and automatically in non-batch
+            // Editor Play Mode. It persists across API-requested scene resets and rebinds actors.
+            var automation = new GameObject("GameplayAutomation")
+                .AddComponent<GameplayAutomationBridge>();
+            automation.hunterController = hunter.GetComponent<HunterController>();
+            automation.hunterHealth = hunter.GetComponent<HunterHealth>();
+            automation.brain = velkhana.GetComponent<VelkhanaBrain>();
 
             var hud = new GameObject("CombatHud").AddComponent<DebugTools.CombatHud>();
             hud.health = hunter.GetComponent<HunterHealth>();

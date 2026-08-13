@@ -20,6 +20,7 @@ Unity 6000.4.11f1. Open the folder in Unity Hub; the editor generates `Library/`
 | `CameraRig.cs` | Angled follow camera framing hunter and monster together |
 | `Debug/ScriptedPlaythrough.cs` | Virtual gamepad that plays a scripted fight and screenshots each beat |
 | `Debug/CombatHud.cs` | F2 state debugger with player/monster panels, action timelines, world labels and AI spacing intent |
+| `Automation/GameplayAutomationBridge.cs` | Loopback state/input API, exact frame stepping, event stream, reset, capture and JSONL telemetry |
 | `Tests/Editor/CombatMathTests.cs` | Frame-window and damage rules the acceptance criteria depend on |
 
 The simulation runs at a fixed 60 Hz (`ProjectSettings/TimeManager.asset`). All gameplay logic is
@@ -126,6 +127,11 @@ line between them changes colour for too close/in band/too far; while the AI is 
 ring around the hunter shows the desired separation. Press **F3** independently to toggle exact
 hurtbox and attack-volume outlines.
 
+The generated scene also contains a loopback gameplay automation bridge. A standalone player
+started with `-automation` exposes exact input, reset, actor placement, AI configuration, fixed-frame
+step, state/event and camera-capture endpoints on `127.0.0.1:47777`. `-telemetry <path>` records one
+JSON state per fixed frame. See [AUTOMATION.md](AUTOMATION.md) for the protocol and scenario runner.
+
 ## Tests
 
 Edit-mode tests cover frame-window, damage, steering, precise EM124 condition gates and mode
@@ -159,8 +165,8 @@ outside the game window and does not depend on window focus.
 
 ## Not built yet
 
-`ArenaHazardManager`, pooled `IceWall` / `IceSpire`, `CombatTelemetryRecorder`, guard and sharpness,
-lock-on, Slinger Burst, tail sever. See the plan document for where each belongs.
+`ArenaHazardManager`, pooled `IceWall` / `IceSpire`, guard and sharpness, lock-on, Slinger Burst,
+tail sever. See the plan document for where each belongs.
 
 Velkhana's repositioning is direct arena locomotion rather than obstacle-aware navigation, and
 the fixed walking cadence is a project readability choice rather than a decoded EM124 probability.
@@ -170,6 +176,6 @@ Palico targeting, blinded/mount/turf-war/area-change tables and unresolved engin
 outside the demo. Death is tracked on `HunterHealth` but nothing reacts to it, so there is still no
 win or lose.
 
-The hunter's own input path has no automated coverage: driving it needs `InputTestFixture` from
-the Input System package, which needs `testables` in the manifest. Worth adding when combo-buffering
-and cancel windows are tuned, since that is where the state machine gets subtle.
+The hunter input path has both Input System play tests and a device-independent automation override.
+Combo-buffering and cancel-window routes should continue to gain scenario coverage as their timings
+are tuned.
