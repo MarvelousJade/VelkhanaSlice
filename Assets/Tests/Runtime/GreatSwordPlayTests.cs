@@ -229,6 +229,37 @@ namespace VelkhanaSlice.PlayTests
         }
 
         [UnityTest]
+        public IEnumerator AutomationInputDrivesTheRealFixedStepControllerAndCanReleaseIt()
+        {
+            var hunter = MakeHunter(out var root);
+            try
+            {
+                hunter.SetAutomationInput(new HunterAutomationInput
+                {
+                    moveX = 2f, // the API clamps analog magnitude before locomotion
+                    guard = true,
+                });
+
+                yield return new WaitForFixedUpdate();
+
+                Assert.IsTrue(hunter.IsAutomationInputEnabled);
+                Assert.AreEqual(HunterController.State.Guarding, hunter.CurrentState);
+                Assert.AreEqual(1f, hunter.AutomationInput.Move.magnitude, 0.001f);
+
+                hunter.SetAutomationInput(HunterAutomationInput.Released);
+                yield return new WaitForFixedUpdate();
+                Assert.AreEqual(HunterController.State.Free, hunter.CurrentState);
+
+                hunter.ClearAutomationInput();
+                Assert.IsFalse(hunter.IsAutomationInputEnabled);
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+            }
+        }
+
+        [UnityTest]
         public IEnumerator StationaryDrawIsNonDamagingAndHoldRoutesIntoBasicCharge()
         {
             var hunter = MakeHunter(out var root);

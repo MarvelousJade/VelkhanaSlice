@@ -1,0 +1,40 @@
+{
+  "reset": {
+    "seed": 124,
+    "paused": true,
+    "setPositions": true,
+    "hunterX": 0.0,
+    "hunterY": 1.0,
+    "hunterZ": -5.0,
+    "hunterYaw": 0.0,
+    "monsterX": 0.0,
+    "monsterY": 0.0,
+    "monsterZ": 6.0,
+    "monsterYaw": 180.0
+  },
+  "steps": [
+    {
+      "label": "approach",
+      "frames": 45,
+      "input": { "moveY": 1.0 }
+    },
+    {
+      "label": "basic_charge",
+      "frames": 75,
+      "input": { "primary": true },
+      "capture": "captures/basic_charge.png"
+    },
+    {
+      "label": "basic_release",
+      "frames": 35,
+      "input": {},
+      "capture": "captures/basic_release.png"
+    },
+    {
+      "label": "observe_ai",
+      "frames": 180,
+      "input": {},
+      "capture": "captures/observe_ai.png"
+    }
+  ]
+}
